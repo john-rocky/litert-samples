@@ -76,12 +76,25 @@ resize to 640×640, RGB, `[0,1]` rescale only (no ImageNet normalization), NCHW.
    (`test_image.jpg`, `coco_labels.txt`, `host_params.bin` are bundled.)
 3. Launch **RT-DETRv2** — it compiles the GPU shaders (~1 s/graph on first launch), then detects objects.
 
+## App architecture
+
+The app follows the same MVVM + Jetpack Compose structure as the
+[image_segmentation](../../image_segmentation/kotlin_cpu_gpu) sample: `MainActivity` is a thin Compose
+host, `MainViewModel` owns the detector and exposes a single `UiState`, and all inference stays in
+`RtDetr`. The view model confines every model call to one worker, since `RtDetr` reuses native buffers.
+
 ## Files
 
 | File | Description |
 |------|-------------|
 | `android/.../rt_detr_v2/RtDetr.kt` | Both GPU graphs on CompiledModel + host topk + per-token tail + decode + light NMS |
-| `android/.../rt_detr_v2/MainActivity.kt` | Runs detection on a bundled image / gallery pick, overlays boxes + labels |
+| `android/.../rt_detr_v2/MainActivity.kt` | Thin Compose host: wires the gallery picker to the view model |
+| `android/.../rt_detr_v2/MainViewModel.kt` | Owns `RtDetr`, runs detection off the main thread, exposes `UiState` |
+| `android/.../rt_detr_v2/UiState.kt` | Immutable UI state + the display-ready `DetectionBox` |
+| `android/.../rt_detr_v2/ImageUtils.kt` | Asset/gallery decode, EXIF orientation, square resize, RGB conversion |
+| `android/.../rt_detr_v2/view/DetectionScreen.kt` | Compose UI: status header, image picker, results list |
+| `android/.../rt_detr_v2/view/DetectionOverlay.kt` | Draws the image and detection boxes on a Compose `Canvas` |
+| `android/.../rt_detr_v2/view/Theme.kt`, `view/Color.kt` | App theme and the per-class box palette |
 | `android/.../assets/coco_labels.txt` | 80-line COCO label table (contiguous class id 0–79) |
 | `android/.../assets/host_params.bin` | `enc_output` + `enc_bbox_head` weights, valid mask, anchors (fp32) |
 | `conversion/` | litert-torch conversion (2-graph split + the 3D-fan-out fix) + notes |

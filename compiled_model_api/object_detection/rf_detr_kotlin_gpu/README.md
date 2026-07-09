@@ -56,12 +56,25 @@ near-duplicate queries). Preprocessing: square resize to 384×384, RGB, ImageNet
    (`test_image.jpg` + `coco_labels.txt` are bundled.)
 3. Launch **RF-DETR** — it compiles the GPU shaders (~1 s/graph on first launch), then detects objects.
 
+## App architecture
+
+The app follows the same MVVM + Jetpack Compose structure as the
+[image_segmentation](../../image_segmentation/kotlin_cpu_gpu) sample: `MainActivity` is a thin Compose
+host, `MainViewModel` owns the detector and exposes a single `UiState`, and all inference stays in
+`RfDetr`. The view model confines every model call to one worker, since `RfDetr` reuses native buffers.
+
 ## Files
 
 | File | Description |
 |------|-------------|
 | `android/.../rf_detr/RfDetr.kt` | Both GPU graphs on CompiledModel + host topk/gather + decode + per-class NMS |
-| `android/.../rf_detr/MainActivity.kt` | Runs detection on a bundled image / gallery pick, overlays boxes + labels |
+| `android/.../rf_detr/MainActivity.kt` | Thin Compose host: wires the gallery picker to the view model |
+| `android/.../rf_detr/MainViewModel.kt` | Owns `RfDetr`, runs detection off the main thread, exposes `UiState` |
+| `android/.../rf_detr/UiState.kt` | Immutable UI state + the display-ready `DetectionBox` |
+| `android/.../rf_detr/ImageUtils.kt` | Asset/gallery decode, EXIF orientation, square resize, RGB conversion |
+| `android/.../rf_detr/view/DetectionScreen.kt` | Compose UI: status header, image picker, results list |
+| `android/.../rf_detr/view/DetectionOverlay.kt` | Draws the image and detection boxes on a Compose `Canvas` |
+| `android/.../rf_detr/view/Theme.kt`, `view/Color.kt` | App theme and the per-class box palette |
 | `android/.../assets/coco_labels.txt` | 91-line COCO label table (index = COCO category id) |
 | `conversion/` | litert-torch conversion (2-graph split + SafeLayerNorm) + notes |
 
