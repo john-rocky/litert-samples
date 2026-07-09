@@ -57,10 +57,7 @@ fun DetectionScreen(uiState: UiState, onPickImage: () -> Unit, modifier: Modifie
     Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
       StatusHeader(uiState)
       Spacer(modifier = Modifier.height(12.dp))
-      Button(
-        onClick = onPickImage,
-        enabled = uiState.isModelReady && !uiState.isDetecting,
-      ) {
+      Button(onClick = onPickImage, enabled = uiState.isModelReady && !uiState.isDetecting) {
         Text(text = stringResource(R.string.action_pick_image))
       }
       Spacer(modifier = Modifier.height(12.dp))

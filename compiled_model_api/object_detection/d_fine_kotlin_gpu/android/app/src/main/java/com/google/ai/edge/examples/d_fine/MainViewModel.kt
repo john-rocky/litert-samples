@@ -32,8 +32,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Owns the [DFine] detector and exposes a single [UiState] stream for the screen. The detector loads
- * two GPU graphs, so both model creation and every inference run off the main thread.
+ * Owns the [DFine] detector and exposes a single [UiState] stream for the screen. The detector
+ * loads two GPU graphs, so both model creation and every inference run off the main thread.
  */
 class MainViewModel(private val context: Context) : ViewModel() {
 
@@ -81,7 +81,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
       try {
         detect(context.loadOrientedBitmap(uri), warmUp = false)
       } catch (t: Throwable) {
-        _uiState.update { it.copy(isDetecting = false, errorMessage = t.message ?: "Detection failed") }
+        _uiState.update {
+          it.copy(isDetecting = false, errorMessage = t.message ?: "Detection failed")
+        }
       }
     }
   }

@@ -33,8 +33,8 @@ import com.google.ai.edge.examples.d_fine.view.DetectionScreen
 
 /**
  * D-FINE-S object detection demo. Both transformer graphs run on the LiteRT CompiledModel GPU; only
- * top-k selection, the per-token tail, decode and NMS run on the CPU (see [DFine]). The UI is a thin
- * Compose host over [MainViewModel]; all detection state lives in the view model.
+ * top-k selection, the per-token tail, decode and NMS run on the CPU (see [DFine]). The UI is a
+ * thin Compose host over [MainViewModel]; all detection state lives in the view model.
  */
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {

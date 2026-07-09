@@ -60,7 +60,12 @@ fun DetectionOverlay(
     val scale = minOf(size.width / bitmap.width, size.height / bitmap.height)
     drawIntoCanvas { canvas ->
       val nativeCanvas = canvas.nativeCanvas
-      nativeCanvas.drawBitmap(bitmap, null, RectF(0f, 0f, bitmap.width * scale, bitmap.height * scale), null)
+      nativeCanvas.drawBitmap(
+        bitmap,
+        null,
+        RectF(0f, 0f, bitmap.width * scale, bitmap.height * scale),
+        null,
+      )
       for (box in boxes) {
         val color = boxPalette[box.classId % boxPalette.size]
         boxPaint.color = color
@@ -73,7 +78,13 @@ fun DetectionOverlay(
 
         val text = "${box.label} ${(box.score * 100).toInt()}%"
         val textWidth = labelTextPaint.measureText(text)
-        nativeCanvas.drawRect(left, top - LABEL_HEIGHT, left + textWidth + LABEL_PADDING * 2, top, labelBackgroundPaint)
+        nativeCanvas.drawRect(
+          left,
+          top - LABEL_HEIGHT,
+          left + textWidth + LABEL_PADDING * 2,
+          top,
+          labelBackgroundPaint,
+        )
         nativeCanvas.drawText(text, left + LABEL_PADDING, top - LABEL_PADDING - 2f, labelTextPaint)
       }
     }
