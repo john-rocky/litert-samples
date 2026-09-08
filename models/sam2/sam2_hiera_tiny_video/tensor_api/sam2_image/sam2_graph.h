@@ -41,10 +41,18 @@ struct EncoderInputs {
   std::vector<TfTensor> AsList() const { return {pixels}; }
 };
 
+// odml.runtime_bmm control inputs a graph consumes: one int32 [1,1,1,7]
+// graph input per distinct bound length S, named "rbmm_s<S>". Empty unless a
+// use_rbmm_* toggle is set. The caller appends them to the signature's input
+// list and feeds each with seven int32 copies of S at runtime (the proven
+// attn_bench fill pattern).
+using RbmmParams = std::vector<std::pair<int, TfTensor>>;
+
 struct EncoderOutputs {
   TfTensor image_embeddings;  // [1, S/16, S/16, 256]
   TfTensor feat_s1;           // [1, S/8, S/8, 64]
   TfTensor feat_s0;           // [1, S/4, S/4, 32]
+  RbmmParams rbmm_params;
   std::vector<TfTensor> AsList() const {
     return {image_embeddings, feat_s1, feat_s0};
   }
@@ -64,6 +72,7 @@ struct DecoderOutputs {
   TfTensor masks;         // [1, 3, S/4, S/4] multimask logits
   TfTensor iou_scores;    // [1, 3]
   TfTensor object_score;  // [1, 1]
+  RbmmParams rbmm_params;
   std::vector<TfTensor> AsList() const {
     return {masks, iou_scores, object_score};
   }
@@ -83,13 +92,6 @@ WeightMap MakeSyntheticWeights(const Sam2Config& config, unsigned seed);
 
 EncoderInputs MakeEncoderInputs(const Sam2Config& config);
 DecoderInputs MakeDecoderInputs(const Sam2Config& config);
-
-// odml.runtime_bmm control inputs created during the LAST Build*() call
-// (one int32 [1,1,1,7] graph input per distinct bound length S, named
-// "rbmm_s<S>"). The caller appends the tensors to that signature's input
-// list and feeds each with seven int32 copies of S at runtime (the proven
-// attn_bench fill pattern). Returns and clears the registry.
-std::vector<std::pair<int, TfTensor>> TakeRbmmParams();
 
 EncoderOutputs BuildEncoder(const Sam2Config& config,
                             const EncoderInputs& inputs,

@@ -62,29 +62,30 @@ TfTensor PadHW(const TfTensor& x, int top, int bottom, int left, int right) {
   return Pad(x, paddings);
 }
 
-// Emission toggles (single-threaded graph construction, mirrored from the
-// talker example's pattern).
-bool g_layer_norm_composite = false;
-bool g_sdpa_composite = false;
-bool g_rbmm_attention = false;
-bool g_rbmm_hypernet = false;
+// Build-scoped state, one instance per Build*() call, threaded through the
+// helpers below in place of globals: the config whose emission toggles pick
+// composite vs raw forms, and the odml.runtime_bmm control inputs created so
+// far for this graph.
+struct BuildContext {
+  const Sam2Config& config;
 
-// odml.runtime_bmm control inputs for the CURRENT Build*() call, one per
-// distinct bound length S. The ml_drift parser requires the control tensor
-// to be a RUNTIME input (GetNumberOfRuntimeInputsForNode != 3 rejects the
-// node outright), so these are graph inputs, not constants.
-std::vector<std::pair<int, TfTensor>> g_rbmm_params;
+  // One int32 [1,1,1,7] graph input per distinct bound length S. The
+  // ml_drift parser requires the control tensor to be a RUNTIME input
+  // (GetNumberOfRuntimeInputsForNode != 3 rejects the node outright), so
+  // these are graph inputs, not constants.
+  std::vector<std::pair<int, TfTensor>> rbmm_params;
 
-TfTensor GetRbmmParam(int s) {
-  for (const auto& [len, tensor] : g_rbmm_params) {
-    if (len == s) return tensor;
+  TfTensor RbmmParam(int s) {
+    for (const auto& [len, tensor] : rbmm_params) {
+      if (len == s) return tensor;
+    }
+    TfTensor param({.name = absl::StrCat("rbmm_s", s),
+                    .type = Type::kI32,
+                    .shape = {1, 1, 1, 7}});
+    rbmm_params.emplace_back(s, param);
+    return param;
   }
-  TfTensor param({.name = absl::StrCat("rbmm_s", s),
-                  .type = Type::kI32,
-                  .shape = {1, 1, 1, 7}});
-  g_rbmm_params.emplace_back(s, param);
-  return param;
-}
+};
 
 std::vector<uint8_t> RuntimeBmmAttributes(bool is_src) {
   flexbuffers::Builder fbb;
@@ -133,9 +134,11 @@ TfTensor LayerNormRaw(const TfTensor& x, const TfTensor& weight,
   return Add(Mul(normed, weight), bias);
 }
 
-TfTensor LayerNorm(const TfTensor& x, const TfTensor& weight,
-                   const TfTensor& bias, float eps) {
-  if (!g_layer_norm_composite) return LayerNormRaw(x, weight, bias, eps);
+TfTensor LayerNorm(const BuildContext& ctx, const TfTensor& x,
+                   const TfTensor& weight, const TfTensor& bias, float eps) {
+  if (!ctx.config.use_layer_norm_composite) {
+    return LayerNormRaw(x, weight, bias, eps);
+  }
   StableHLOCompositeOptions opts{.name = "odml.layer_norm",
                                  .composite_attributes =
                                      EpsilonAttributes(eps)};
@@ -170,8 +173,8 @@ TfTensor AttentionRaw(const TfTensor& q, const TfTensor& k, const TfTensor& v,
 // ([B,N,H,D], the odml.scaled_dot_product_attention delegate contract); the
 // decomposition transposes to BNSD and runs the same math, so CPU execution
 // is identical either way.
-TfTensor Mha(const TfTensor& q, const TfTensor& k, const TfTensor& v,
-             int heads) {
+TfTensor Mha(BuildContext& ctx, const TfTensor& q, const TfTensor& k,
+             const TfTensor& v, int heads) {
   const auto& qs = q.GetShape();
   const auto& ks = k.GetShape();
   int b = qs[0];
@@ -186,7 +189,7 @@ TfTensor Mha(const TfTensor& q, const TfTensor& k, const TfTensor& v,
   TfTensor v4 = Reshape(v, {b, nk, heads, hd});
 
   TfTensor out;
-  if (g_sdpa_composite) {
+  if (ctx.config.use_sdpa_composite) {
     StableHLOCompositeOptions opts{
         .name = "odml.scaled_dot_product_attention",
         .composite_attributes = SdpaAttributes(scale)};
@@ -200,7 +203,7 @@ TfTensor Mha(const TfTensor& q, const TfTensor& k, const TfTensor& v,
           return Transpose(o, {0, 2, 1, 3});
         },
         q4, k4, v4);
-  } else if (g_rbmm_attention) {
+  } else if (ctx.config.use_rbmm_attention) {
     // QK + AV odml.runtime_bmm pair with in-graph scale + softmax between.
     // Both sides bound at the full length (elem2 = nk): dst-bounded QK
     // writes every column and src-bounded AV reduces every position, so
@@ -208,7 +211,7 @@ TfTensor Mha(const TfTensor& q, const TfTensor& k, const TfTensor& v,
     // full fill (that needs active < S).
     TfTensor qt = Transpose(q4, {0, 2, 1, 3});   // [B,H,M,D]
     TfTensor kt = Transpose(k4, {0, 2, 1, 3});   // [B,H,N,D]
-    TfTensor param = GetRbmmParam(nk);
+    TfTensor param = ctx.RbmmParam(nk);
     TfTensor scores = RuntimeBmm(qt, kt, param, /*is_src=*/false);
     scores = Mul(scores, ConstScalar(scale));
     TfTensor attn = Softmax(scores);             // [B,H,M,N]
@@ -261,17 +264,17 @@ TfTensor WindowUnpartition(const TfTensor& windows, int n_h, int n_w, int ws2,
 }
 
 // One Hiera multi-scale block on an NHWC grid tensor.
-TfTensor MultiScaleBlock(const Sam2Config& config,
-                         const Sam2Config::BlockSpec& spec, const TfTensor& x,
-                         const std::string& prefix, const WeightMap& weights) {
+TfTensor MultiScaleBlock(BuildContext& ctx, const Sam2Config::BlockSpec& spec,
+                         const TfTensor& x, const std::string& prefix,
+                         const WeightMap& weights) {
   const int dim = spec.dim;
   const int dim_out = spec.dim_out;
   const int h = spec.grid_in;
 
   TfTensor shortcut = x;
-  TfTensor xn = LayerNorm(x, W(weights, prefix + ".norm1.weight"),
+  TfTensor xn = LayerNorm(ctx, x, W(weights, prefix + ".norm1.weight"),
                           W(weights, prefix + ".norm1.bias"),
-                          config.ln_eps_hiera);
+                          ctx.config.ln_eps_hiera);
   if (dim != dim_out) {
     shortcut = FullyConnected(xn, W(weights, prefix + ".proj.weight"),
                               W(weights, prefix + ".proj.bias"));
@@ -312,7 +315,7 @@ TfTensor MultiScaleBlock(const Sam2Config& config,
     q = Reshape(q, {batch, nq, dim_out});
   }
 
-  TfTensor attn = Mha(q, k, v, spec.heads);
+  TfTensor attn = Mha(ctx, q, k, v, spec.heads);
   attn = FullyConnected(attn, W(weights, prefix + ".attn.proj.weight"),
                         W(weights, prefix + ".attn.proj.bias"));
 
@@ -326,9 +329,9 @@ TfTensor MultiScaleBlock(const Sam2Config& config,
   }
 
   TfTensor merged = Add(shortcut, attn);
-  TfTensor m = LayerNorm(merged, W(weights, prefix + ".norm2.weight"),
+  TfTensor m = LayerNorm(ctx, merged, W(weights, prefix + ".norm2.weight"),
                          W(weights, prefix + ".norm2.bias"),
-                         config.ln_eps_hiera);
+                         ctx.config.ln_eps_hiera);
   m = FullyConnected(m, W(weights, prefix + ".mlp.layers.0.weight"),
                      W(weights, prefix + ".mlp.layers.0.bias"));
   m = Gelu(m);
@@ -339,16 +342,17 @@ TfTensor MultiScaleBlock(const Sam2Config& config,
 
 // SAM decoder attention wrapper: separate q/k/v/out projections (+bias),
 // internal dim from the weight shapes (cross attention downsamples to 128).
-TfTensor SamAttention(const TfTensor& q_in, const TfTensor& k_in,
-                      const TfTensor& v_in, const std::string& prefix,
-                      const WeightMap& weights, int heads) {
+TfTensor SamAttention(BuildContext& ctx, const TfTensor& q_in,
+                      const TfTensor& k_in, const TfTensor& v_in,
+                      const std::string& prefix, const WeightMap& weights,
+                      int heads) {
   TfTensor q = FullyConnected(q_in, W(weights, prefix + ".q_proj.weight"),
                               W(weights, prefix + ".q_proj.bias"));
   TfTensor k = FullyConnected(k_in, W(weights, prefix + ".k_proj.weight"),
                               W(weights, prefix + ".k_proj.bias"));
   TfTensor v = FullyConnected(v_in, W(weights, prefix + ".v_proj.weight"),
                               W(weights, prefix + ".v_proj.bias"));
-  TfTensor out = Mha(q, k, v, heads);
+  TfTensor out = Mha(ctx, q, k, v, heads);
   return FullyConnected(out, W(weights, prefix + ".out_proj.weight"),
                         W(weights, prefix + ".out_proj.bias"));
 }
@@ -601,19 +605,10 @@ DecoderInputs MakeDecoderInputs(const Sam2Config& config) {
   return inputs;
 }
 
-std::vector<std::pair<int, TfTensor>> TakeRbmmParams() {
-  std::vector<std::pair<int, TfTensor>> params = std::move(g_rbmm_params);
-  g_rbmm_params.clear();
-  return params;
-}
-
 EncoderOutputs BuildEncoder(const Sam2Config& config,
                             const EncoderInputs& inputs,
                             const WeightMap& weights) {
-  g_layer_norm_composite = config.use_layer_norm_composite;
-  g_sdpa_composite = config.use_sdpa_composite;
-  g_rbmm_attention = config.use_rbmm_attention;
-  g_rbmm_hypernet = config.use_rbmm_hypernet;
+  BuildContext ctx{config};
 
   // Patch embed: explicit 3px pad + VALID 7x7/s4 (torch padding semantics —
   // TFLite SAME would pad 1+2 at stride 4 and shift the sampling grid).
@@ -627,7 +622,7 @@ EncoderOutputs BuildEncoder(const Sam2Config& config,
   auto stage_ends = config.StageEnds();
   std::vector<TfTensor> stage_outputs;
   for (int i = 0; i < static_cast<int>(blocks.size()); ++i) {
-    x = MultiScaleBlock(config, blocks[i], x, absl::StrCat("trunk.blocks.", i),
+    x = MultiScaleBlock(ctx, blocks[i], x, absl::StrCat("trunk.blocks.", i),
                         weights);
     for (int e : stage_ends) {
       if (e == i) stage_outputs.push_back(x);
@@ -672,16 +667,14 @@ EncoderOutputs BuildEncoder(const Sam2Config& config,
       Conv2D(laterals[0], W(weights, "sam_mask_decoder.conv_s0.weight"),
              W(weights, "sam_mask_decoder.conv_s0.bias"), 1, 1, kPaddingValid);
   outputs.feat_s0.SetName("feat_s0");
+  outputs.rbmm_params = std::move(ctx.rbmm_params);
   return outputs;
 }
 
 DecoderOutputs BuildDecoder(const Sam2Config& config,
                             const DecoderInputs& inputs,
                             const WeightMap& weights) {
-  g_layer_norm_composite = config.use_layer_norm_composite;
-  g_sdpa_composite = config.use_sdpa_composite;
-  g_rbmm_attention = config.use_rbmm_attention;
-  g_rbmm_hypernet = config.use_rbmm_hypernet;
+  BuildContext ctx{config};
 
   const int eg = config.embed_grid();
   const int mg = config.mask_grid();
@@ -750,45 +743,45 @@ DecoderOutputs BuildDecoder(const Sam2Config& config,
     std::string p = absl::StrCat(tr, ".layers.", l);
     if (l == 0) {
       // skip_first_layer_pe: plain self-attention REPLACES the queries.
-      queries = SamAttention(queries, queries, queries, p + ".self_attn",
-                            weights, 8);
+      queries = SamAttention(ctx, queries, queries, queries,
+                             p + ".self_attn", weights, 8);
     } else {
       TfTensor q = Add(queries, qpe);
-      queries = Add(queries,
-                    SamAttention(q, q, queries, p + ".self_attn", weights, 8));
+      queries = Add(queries, SamAttention(ctx, q, q, queries,
+                                          p + ".self_attn", weights, 8));
     }
-    queries = LayerNorm(queries, W(weights, p + ".norm1.weight"),
+    queries = LayerNorm(ctx, queries, W(weights, p + ".norm1.weight"),
                         W(weights, p + ".norm1.bias"), eps);
 
     TfTensor q = Add(queries, qpe);
     TfTensor k = Add(keys, kpe);
-    queries = Add(queries, SamAttention(q, k, keys,
+    queries = Add(queries, SamAttention(ctx, q, k, keys,
                                         p + ".cross_attn_token_to_image",
                                         weights, 8));
-    queries = LayerNorm(queries, W(weights, p + ".norm2.weight"),
+    queries = LayerNorm(ctx, queries, W(weights, p + ".norm2.weight"),
                         W(weights, p + ".norm2.bias"), eps);
 
     TfTensor m = FullyConnected(queries, W(weights, p + ".mlp.layers.0.weight"),
                                 W(weights, p + ".mlp.layers.0.bias"), kActRelu);
     m = FullyConnected(m, W(weights, p + ".mlp.layers.1.weight"),
                        W(weights, p + ".mlp.layers.1.bias"));
-    queries = LayerNorm(Add(queries, m), W(weights, p + ".norm3.weight"),
+    queries = LayerNorm(ctx, Add(queries, m), W(weights, p + ".norm3.weight"),
                         W(weights, p + ".norm3.bias"), eps);
 
     q = Add(queries, qpe);
     k = Add(keys, kpe);
-    keys = Add(keys, SamAttention(k, q, queries,
+    keys = Add(keys, SamAttention(ctx, k, q, queries,
                                   p + ".cross_attn_image_to_token", weights,
                                   8));
-    keys = LayerNorm(keys, W(weights, p + ".norm4.weight"),
+    keys = LayerNorm(ctx, keys, W(weights, p + ".norm4.weight"),
                      W(weights, p + ".norm4.bias"), eps);
   }
   TfTensor q_final = Add(queries, qpe);
   TfTensor k_final = Add(keys, kpe);
-  queries = Add(queries, SamAttention(q_final, k_final, keys,
+  queries = Add(queries, SamAttention(ctx, q_final, k_final, keys,
                                       tr + ".final_attn_token_to_image",
                                       weights, 8));
-  queries = LayerNorm(queries, W(weights, tr + ".norm_final_attn.weight"),
+  queries = LayerNorm(ctx, queries, W(weights, tr + ".norm_final_attn.weight"),
                       W(weights, tr + ".norm_final_attn.bias"), eps);
 
   // --- Mask upscaling (transposed convs; LayerNorm2d == last-axis LN in
@@ -799,7 +792,7 @@ DecoderOutputs BuildDecoder(const Sam2Config& config,
                            W(weights, dec + ".output_upscaling_0.bias"),
                            2 * eg, 2 * eg, 64, tc);
   up = Add(up, inputs.feat_s1);
-  up = LayerNorm(up, W(weights, dec + ".output_upscaling_1.weight"),
+  up = LayerNorm(ctx, up, W(weights, dec + ".output_upscaling_1.weight"),
                  W(weights, dec + ".output_upscaling_1.bias"),
                  config.ln_eps_2d);
   up = Gelu(up);
@@ -823,12 +816,12 @@ DecoderOutputs BuildDecoder(const Sam2Config& config,
                                      /*axis=*/1);  // [1,3,32]
   TfTensor up_flat = Reshape(up, {1, mg * mg, 32});
   TfTensor masks;
-  if (g_rbmm_hypernet) {
+  if (config.use_rbmm_hypernet) {
     // The activation x activation projection as one dst-bounded
     // runtime_bmm at rank 4 (elem2 = mg*mg = full width).
     TfTensor h4 = Reshape(hyper_all, {1, 1, 3, 32});
     TfTensor u4 = Reshape(up_flat, {1, 1, mg * mg, 32});
-    TfTensor param = GetRbmmParam(mg * mg);
+    TfTensor param = ctx.RbmmParam(mg * mg);
     TfTensor m4 = RuntimeBmm(h4, u4, param, /*is_src=*/false);
     masks = Reshape(m4, {1, 3, mg * mg});
   } else {
@@ -847,6 +840,7 @@ DecoderOutputs BuildDecoder(const Sam2Config& config,
                          /*sigmoid_output=*/false);  // [1,1,1]
   outputs.object_score = Reshape(obj, {1, 1});
   outputs.object_score.SetName("object_score");
+  outputs.rbmm_params = std::move(ctx.rbmm_params);
   return outputs;
 }
 

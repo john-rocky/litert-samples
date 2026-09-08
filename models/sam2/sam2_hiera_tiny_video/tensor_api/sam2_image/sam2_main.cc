@@ -190,16 +190,14 @@ absl::Status Run() {
 
   sam2::EncoderInputs enc_in = sam2::MakeEncoderInputs(config);
   sam2::EncoderOutputs enc_out = sam2::BuildEncoder(config, enc_in, weights);
-  auto enc_rbmm = sam2::TakeRbmmParams();
   sam2::DecoderInputs dec_in = sam2::MakeDecoderInputs(config);
   sam2::DecoderOutputs dec_out = sam2::BuildDecoder(config, dec_in, weights);
-  auto dec_rbmm = sam2::TakeRbmmParams();
 
   ModelFactory factory;
   {
     std::vector<::litert::tensor::TensorHandle> ins, outs;
     for (auto& t : enc_in.AsList()) ins.push_back(t);
-    for (auto& [s, t] : enc_rbmm) ins.push_back(t);
+    for (auto& [s, t] : enc_out.rbmm_params) ins.push_back(t);
     for (auto& t : enc_out.AsList()) outs.push_back(t);
     auto status = factory.AddSignature(ins, outs, "encode_image");
     if (!status.ok()) return status;
@@ -207,7 +205,7 @@ absl::Status Run() {
   {
     std::vector<::litert::tensor::TensorHandle> ins, outs;
     for (auto& t : dec_in.AsList()) ins.push_back(t);
-    for (auto& [s, t] : dec_rbmm) ins.push_back(t);
+    for (auto& [s, t] : dec_out.rbmm_params) ins.push_back(t);
     for (auto& t : dec_out.AsList()) outs.push_back(t);
     auto status = factory.AddSignature(ins, outs, "decode_mask");
     if (!status.ok()) return status;
@@ -221,11 +219,10 @@ absl::Status Run() {
   if (!split_dir.empty()) {
     sam2::EncoderInputs enc_in2 = sam2::MakeEncoderInputs(config);
     sam2::EncoderOutputs enc_out2 = sam2::BuildEncoder(config, enc_in2, weights);
-    auto enc_rbmm2 = sam2::TakeRbmmParams();
     ModelFactory enc_factory;
     std::vector<::litert::tensor::TensorHandle> ins, outs;
     for (auto& t : enc_in2.AsList()) ins.push_back(t);
-    for (auto& [s, t] : enc_rbmm2) ins.push_back(t);
+    for (auto& [s, t] : enc_out2.rbmm_params) ins.push_back(t);
     for (auto& t : enc_out2.AsList()) outs.push_back(t);
     auto st1 = enc_factory.AddSignature(ins, outs, "encode_image");
     if (!st1.ok()) return st1;
@@ -234,12 +231,11 @@ absl::Status Run() {
 
     sam2::DecoderInputs dec_in2 = sam2::MakeDecoderInputs(config);
     sam2::DecoderOutputs dec_out2 = sam2::BuildDecoder(config, dec_in2, weights);
-    auto dec_rbmm2 = sam2::TakeRbmmParams();
     ModelFactory dec_factory;
     ins.clear();
     outs.clear();
     for (auto& t : dec_in2.AsList()) ins.push_back(t);
-    for (auto& [s, t] : dec_rbmm2) ins.push_back(t);
+    for (auto& [s, t] : dec_out2.rbmm_params) ins.push_back(t);
     for (auto& t : dec_out2.AsList()) outs.push_back(t);
     auto st2 = dec_factory.AddSignature(ins, outs, "decode_mask");
     if (!st2.ok()) return st2;
@@ -327,10 +323,8 @@ absl::Status Run() {
   // odml.runtime_bmm control inputs: seven int32 copies of the bound
   // length S per input (the proven attn_bench fill pattern; element 2 is
   // the one the kernels read). Set once — inputs persist across Run().
-  auto set_rbmm_params =
-      [&](const std::string& sig,
-          const std::vector<std::pair<int, sam2::TfTensor>>& params)
-      -> absl::Status {
+  auto set_rbmm_params = [&](const std::string& sig,
+                             const sam2::RbmmParams& params) -> absl::Status {
     for (const auto& [s, t] : params) {
       const std::string name = absl::StrCat("rbmm_s", s);
       auto st = runner.SetInput(
@@ -342,9 +336,9 @@ absl::Status Run() {
     return absl::OkStatus();
   };
   {
-    auto st = set_rbmm_params("encode_image", enc_rbmm);
+    auto st = set_rbmm_params("encode_image", enc_out.rbmm_params);
     if (!st.ok()) return st;
-    st = set_rbmm_params("decode_mask", dec_rbmm);
+    st = set_rbmm_params("decode_mask", dec_out.rbmm_params);
     if (!st.ok()) return st;
   }
 
