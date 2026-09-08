@@ -2,7 +2,8 @@
 //
 // Two signatures in one flatbuffer:
 //   encode_image: pixels [1,512,512,3] NHWC (ImageNet-normalized) ->
-//     image_embeddings [1,32,32,256] (no_mem_embed folded in),
+//     image_embeddings [1,32,32,256] (no_mem_embed folded in while
+//     Sam2Config::fold_no_mem_embed is set — the default),
 //     feat_s1 [1,64,64,64], feat_s0 [1,128,128,32] (conv_s1/conv_s0 folded
 //     into the encoder — the decoder-ready layout the published converted
 //     models use).

@@ -1,8 +1,8 @@
 // SAM2.1 hiera-tiny VIDEO tracking path authored on the C++ Tensor API.
 //
 // Adds the three per-frame memory graphs of the SAM2 tracking loop to the
-// image-path encoder (reused from ../sam2_image at image_size=1024 with a
-// zeroed no_mem_embed, so its output IS the raw top-level feature map):
+// image-path encoder (reused from ../sam2_image at image_size=1024 with
+// fold_no_mem_embed cleared, so its output IS the raw top-level feature map):
 //
 //   memcond{N}: memory attention over a FIXED bank of N spatial memory
 //     slots (4096 tokens x 64ch each) + 64 object-pointer tokens. Unused

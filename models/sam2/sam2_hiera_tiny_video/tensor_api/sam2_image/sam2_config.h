@@ -31,6 +31,13 @@ struct Sam2Config {
   // Neck / SAM.
   int d_model = 256;
 
+  // Fold no_mem_embed (the "no memory" image-only conditioning) into the
+  // encoder's image_embeddings output — the image path's contract. The video
+  // pipeline clears it: its encoder then emits the raw top-level feature map
+  // and the video decoder adds the row itself, on the conditioning frame
+  // only, through its nomem input.
+  bool fold_no_mem_embed = true;
+
   // Eps values from the reference implementations (Hiera LN explicit 1e-6;
   // decoder LayerNorm = torch/mlx default 1e-5; LayerNorm2d = 1e-6).
   float ln_eps_hiera = 1e-6f;

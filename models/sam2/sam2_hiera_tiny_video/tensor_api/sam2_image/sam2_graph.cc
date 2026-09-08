@@ -652,12 +652,16 @@ EncoderOutputs BuildEncoder(const Sam2Config& config,
   TfTensor fpn2 = Add(laterals[2], top_down);
 
   EncoderOutputs outputs;
-  // no_mem_embed folded in (the "no memory" image-only conditioning).
-  // Re-baked at the broadcast shape: a graph Reshape of a constant is
-  // rejected by the GPU delegate ("expected 1 runtime input").
-  TfTensor no_mem = ConstFloats(HostFloats(W(weights, "no_mem_embed")),
-                                {1, 1, 1, config.d_model}, "no_mem_row");
-  outputs.image_embeddings = Add(fpn2, no_mem);
+  if (config.fold_no_mem_embed) {
+    // no_mem_embed folded in (the "no memory" image-only conditioning).
+    // Re-baked at the broadcast shape: a graph Reshape of a constant is
+    // rejected by the GPU delegate ("expected 1 runtime input").
+    TfTensor no_mem = ConstFloats(HostFloats(W(weights, "no_mem_embed")),
+                                  {1, 1, 1, config.d_model}, "no_mem_row");
+    outputs.image_embeddings = Add(fpn2, no_mem);
+  } else {
+    outputs.image_embeddings = fpn2;  // the raw top-level feature map
+  }
   outputs.image_embeddings.SetName("image_embeddings");
   outputs.feat_s1 =
       Conv2D(laterals[1], W(weights, "sam_mask_decoder.conv_s1.weight"),

@@ -240,10 +240,11 @@ absl::Status Run() {
 
   s2v::Sam2VideoConfig config;  // image_size = 1024
   sam2::Sam2Config& img = config.image;
+  // The encoder emits the raw top-level feature map; the video decoder adds
+  // the no-memory row itself, on the conditioning frame, via its nomem input.
+  img.fold_no_mem_embed = false;
 
-  // ---- Weights: image keys + video keys from the same file. The encoder
-  // is built with a ZEROED no_mem_embed so its output is the raw feature
-  // map; the video decoder applies the real row via its nomem input. ----
+  // ---- Weights: image keys + video keys from the same file. ----
   s2v::WeightMap weights;
   const std::string weights_path = absl::GetFlag(FLAGS_weights);
   if (weights_path.empty()) {
@@ -275,27 +276,9 @@ absl::Status Run() {
   consts.tpos_b = HostFloatsOf(weights, "obj_ptr_tpos_proj.bias");
 
   // ---- Build the five signatures (shared weights, one flatbuffer). ----
-  std::vector<float> real_no_mem = HostFloatsOf(weights, "no_mem_embed");
-  {
-    std::vector<float> zeros(real_no_mem.size(), 0.0f);
-    weights["no_mem_embed"] = s2v::TfTensor(
-        {.name = "no_mem_embed",
-         .type = Type::kFP32,
-         .shape = {1, 1, img.d_model},
-         .buffer = ::litert::tensor::OwningCpuBuffer::Copy<Type::kFP32>(
-             zeros)});
-  }
   sam2::EncoderInputs enc_in = sam2::MakeEncoderInputs(img);
   sam2::EncoderOutputs enc_out = sam2::BuildEncoder(img, enc_in, weights);
   enc_out.image_embeddings.SetName("pix_raw");
-  {
-    weights["no_mem_embed"] = s2v::TfTensor(
-        {.name = "no_mem_embed",
-         .type = Type::kFP32,
-         .shape = {1, 1, img.d_model},
-         .buffer = ::litert::tensor::OwningCpuBuffer::Copy<Type::kFP32>(
-             real_no_mem)});
-  }
 
   s2v::MemCondInputs mc7_in = s2v::MakeMemCondInputs(config, 7);
   s2v::TfTensor mc7_out = s2v::BuildMemCond(config, 7, mc7_in, weights);
