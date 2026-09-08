@@ -493,27 +493,14 @@ TfTensor BuildMemorize(const Sam2VideoConfig& config,
   f = Add(f, m);
 
   // 2 ConvNeXt fuser blocks: depthwise 7x7 (pad3 + VALID), LN, pw1, GELU,
-  // pw2, gamma scale, residual. Depthwise filter repacked to [1,7,7,C].
+  // pw2, gamma scale, residual. The depthwise filter is exported in the
+  // TFLite [1,7,7,C] layout, like every other conv filter.
   for (int i = 0; i < 2; ++i) {
     const std::string p = absl::StrCat(me, ".fuser.", i);
-    std::vector<float> dw = HostFloats(W(weights, p + ".dwconv.weight"));
-    const auto& ds = W(weights, p + ".dwconv.weight").GetShape();  // [C,7,7,1]
-    const int ch = ds[0];
-    const int kh = ds[1];
-    const int kw = ds[2];
-    std::vector<float> dwt(dw.size());
-    for (int c = 0; c < ch; ++c) {
-      for (int y = 0; y < kh; ++y) {
-        for (int xx = 0; xx < kw; ++xx) {
-          dwt[(static_cast<size_t>(y) * kw + xx) * ch + c] =
-              dw[(static_cast<size_t>(c) * kh + y) * kw + xx];
-        }
-      }
-    }
-    TfTensor t = DepthwiseConv2D(
-        PadHW(f, 3, 3, 3, 3),
-        ConstFloats(dwt, {1, kh, kw, ch}, p + ".dwconv.repacked"),
-        W(weights, p + ".dwconv.bias"), 1, 1, kPaddingValid);
+    TfTensor t = DepthwiseConv2D(PadHW(f, 3, 3, 3, 3),
+                                 W(weights, p + ".dwconv.weight"),
+                                 W(weights, p + ".dwconv.bias"), 1, 1,
+                                 kPaddingValid);
     t = LayerNorm(t, W(weights, p + ".norm.weight"),
                   W(weights, p + ".norm.bias"), eps);
     t = FullyConnected(t, W(weights, p + ".pwconv1.weight"),

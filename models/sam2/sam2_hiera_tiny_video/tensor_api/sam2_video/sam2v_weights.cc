@@ -66,7 +66,7 @@ std::vector<WeightSpec> GetVideoWeightSpecs(const Sam2VideoConfig& config) {
   add("memory_encoder.pix_feat_proj.bias", {hd}, 0.0f);
   for (int i = 0; i < 2; ++i) {
     std::string p = absl::StrCat("memory_encoder.fuser.", i);
-    add(p + ".dwconv.weight", {hd, 7, 7, 1});
+    add(p + ".dwconv.weight", {1, 7, 7, hd});  // TFLite depthwise layout
     add(p + ".dwconv.bias", {hd}, 0.0f);
     add(p + ".norm.weight", {hd}, 1.0f);
     add(p + ".norm.bias", {hd}, 0.0f);

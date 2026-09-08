@@ -26,13 +26,16 @@ file, plus derived tables under "tables.":
   tables.track_sparse         [2,256] the sparse prompt used on non-prompted
                               tracking frames (label -1 "no point" encoding).
 
-All conv weights are permuted to the TFLite OHWI layout (depthwise stays
-per-channel-planes [C,kh,kw,1]; transposed convs to [O,kh,kw,I]).
+All conv weights are permuted to the TFLite filter layouts, so the C++ graphs
+consume every filter as stored: Conv2D to OHWI, depthwise (the memory-encoder
+fuser) to [1,kh,kw,C], ConvTranspose2d to [O,kh,kw,I].
 
 Cross-check: every key shared with the verified 512 file (which stores the
-same weights in fp16) must round-trip: fp16(exported) == stored fp16. The two
-expected exceptions are trunk.pos_embed_full (different grid by design) and
-the permuted memory-attention q/k rows (compared after inverse permutation).
+same weights in fp16) must round-trip: fp16(exported) == stored fp16. The
+expected exceptions are trunk.pos_embed_full (different grid by design), the
+permuted memory-attention q/k rows (compared after inverse permutation) and
+the depthwise filters (compared after transposing back to that file's
+[C,kh,kw,1]).
 
 Run (any venv with torch + transformers>=5 + safetensors + numpy):
   python export_weights_1024.py --out sam2_tiny_1024_video.safetensors \
@@ -56,6 +59,10 @@ def ohwi(w):  # torch conv OIHW -> TFLite OHWI
 
 
 def t_ohwi(w):  # torch ConvTranspose2d IOHW -> [O,kh,kw,I]
+    return w.permute(1, 2, 3, 0).contiguous()
+
+
+def dw_1hwc(w):  # torch depthwise [C,1,kh,kw] -> TFLite DepthwiseConv2D [1,kh,kw,C]
     return w.permute(1, 2, 3, 0).contiguous()
 
 
@@ -244,7 +251,7 @@ def main():
     for i in range(2):
         s = f"{me}.memory_fuser.layers.{i}"
         d = f"{me}.fuser.{i}"
-        out[f"{d}.dwconv.weight"] = ohwi(take(f"{s}.depthwise_conv.weight"))
+        out[f"{d}.dwconv.weight"] = dw_1hwc(take(f"{s}.depthwise_conv.weight"))
         out[f"{d}.dwconv.bias"] = take(f"{s}.depthwise_conv.bias")
         out[f"{d}.norm.weight"] = take(f"{s}.layer_norm.weight")
         out[f"{d}.norm.bias"] = take(f"{s}.layer_norm.bias")
@@ -349,6 +356,8 @@ def main():
                 if (key.startswith("memory_attention.layers.") and
                         (".q_proj." in key or ".k_proj." in key)):
                     mine = mine[inv_perm]  # stored permuted; undo for compare
+                if key.endswith(".dwconv.weight"):
+                    mine = mine.transpose(3, 1, 2, 0)  # [1,kh,kw,C] -> [C,kh,kw,1]
                 if ref16.shape != mine.shape:
                     bad.append((key, "shape", ref16.shape, mine.shape))
                     continue
