@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "models/sam2/sam2_hiera_tiny_video/tensor_api/sam2_video/sam2v_graph.h"
 
 namespace litert::tensor::examples::sam2_video {
@@ -21,8 +21,8 @@ using ::litert::tensor::examples::sam2::WeightSpec;
 std::vector<WeightSpec> GetVideoWeightSpecs(const Sam2VideoConfig& config);
 
 // Loads GetVideoWeightSpecs into `weights` (which already holds the image
-// keys). Compensates the safetensor loader's Gemma-norm +1.0 heuristic on
-// the three video keys that match its predicate.
+// keys) through sam2_image's LoadWeightSpecs: values exactly as stored,
+// shape-checked, no name-based rewriting.
 absl::Status LoadVideoWeights(const Sam2VideoConfig& config,
                               const std::string& path, WeightMap& weights);
 

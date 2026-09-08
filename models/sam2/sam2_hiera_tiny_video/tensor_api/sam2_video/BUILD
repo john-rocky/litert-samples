@@ -45,11 +45,10 @@ cc_library(
     hdrs = ["sam2v_weights.h"],
     deps = [
         ":sam2v_graph",
+        "//models/sam2/sam2_hiera_tiny_video/tensor_api/sam2_image:sam2_weights",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@litert_archive//tensor",
-        "@litert_archive//tensor/examples/gemma3:safetensor_loader",
     ],
 )
 

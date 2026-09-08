@@ -56,7 +56,10 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@litert_archive//tensor",
+        "@litert_archive//tensor:buffer",
+        "@litert_archive//tensor:datatypes",
         "@litert_archive//tensor/examples/gemma3:safetensor_loader",
+        "@litert_archive//tensor/examples/gemma3:safetensors",
     ],
 )
 

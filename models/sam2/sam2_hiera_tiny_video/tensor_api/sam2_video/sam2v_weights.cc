@@ -3,31 +3,14 @@
 #include "models/sam2/sam2_hiera_tiny_video/tensor_api/sam2_video/sam2v_weights.h"
 
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
-#include "absl/status/statusor.h"  // from @com_google_absl
-#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
-#include "absl/strings/str_join.h"  // from @com_google_absl
-#include "tensor/examples/gemma3/safetensor_loader.h"
+#include "models/sam2/sam2_hiera_tiny_video/tensor_api/sam2_image/sam2_weights.h"
 #include "tensor/tensor.h"
 
 namespace litert::tensor::examples::sam2_video {
-
-namespace {
-
-// The gemma3 loader's Gemma-norm heuristic: +1.0 on any tensor whose name
-// contains "layernorm" or ends with "norm.weight". Three video keys match
-// (memory_attention.norm.weight, memory_encoder.fuser.{0,1}.norm.weight);
-// their loaded values are compensated back below.
-bool LoaderAddsGemmaOffset(const std::string& name) {
-  return absl::StrContains(name, "layernorm") ||
-         absl::EndsWith(name, "norm.weight");
-}
-
-}  // namespace
 
 std::vector<WeightSpec> GetVideoWeightSpecs(const Sam2VideoConfig& config) {
   std::vector<WeightSpec> specs;
@@ -133,38 +116,7 @@ std::vector<WeightSpec> GetVideoWeightSpecs(const Sam2VideoConfig& config) {
 
 absl::Status LoadVideoWeights(const Sam2VideoConfig& config,
                               const std::string& path, WeightMap& weights) {
-  auto loader_or = SafetensorLoader::Load(path);
-  if (!loader_or.ok()) return loader_or.status();
-  auto loader = std::move(*loader_or);
-
-  for (const WeightSpec& spec : GetVideoWeightSpecs(config)) {
-    auto handle_or = loader.LoadTensor(
-        spec.name, SafetensorLoader::QuantizedLoadMode::kDequantizeToFp32);
-    if (!handle_or.ok()) {
-      return absl::NotFoundError(absl::StrCat("checkpoint missing ", spec.name,
-                                              ": ",
-                                              handle_or.status().message()));
-    }
-    TfTensor tensor(*handle_or);
-    const auto& loaded_shape = tensor.GetShape();
-    std::vector<int> loaded(loaded_shape.begin(), loaded_shape.end());
-    if (loaded != spec.shape) {
-      return absl::FailedPreconditionError(absl::StrCat(
-          spec.name, ": checkpoint shape [", absl::StrJoin(loaded, ","),
-          "] != expected [", absl::StrJoin(spec.shape, ","), "]"));
-    }
-    if (LoaderAddsGemmaOffset(spec.name)) {
-      auto buffer = tensor.GetBuffer();
-      if (!buffer.ok()) return buffer.status();
-      auto lock = buffer->LockMutable();
-      float* p = reinterpret_cast<float*>(lock.data());
-      size_t count = lock.size() / sizeof(float);
-      for (size_t i = 0; i < count; ++i) p[i] -= 1.0f;
-    }
-    tensor.SetName(spec.name);
-    weights[spec.name] = std::move(tensor);
-  }
-  return absl::OkStatus();
+  return sam2::LoadWeightSpecs(path, GetVideoWeightSpecs(config), weights);
 }
 
 void MakeSyntheticVideoWeights(const Sam2VideoConfig& config, unsigned seed,
