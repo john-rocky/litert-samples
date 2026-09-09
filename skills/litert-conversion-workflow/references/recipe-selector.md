@@ -212,8 +212,12 @@ are the LLM-specific facts that override intuition:
 - **Weight-only (explicit dequantize) vs dynamic**: weight-only buys
   quality when activation quantization is the floor — but it
   materializes fp32 weights at prepare time (RAM = fp32, not the file
-  size), and its int4 form crashes the Apple GPU delegate. Prefer
-  dynamic; use weight-only deliberately.
+  size), and on the Mac GPU delegate (litert-lm 0.17.0) both its int8
+  and int4 forms fail at engine creation — the dequantized 2048×2048
+  weight arrives as a runtime tensor and the delegate rejects it with a
+  shape mismatch (`{2048,1,1,2048}` vs `{1,1,2048,2048}`); a weight-only
+  bundle is a CPU-only bundle until that changes. Prefer dynamic; use
+  weight-only deliberately.
 - **All-zero weight rows break blockwise int4 on the CPU backend only.**
   A dense checkpoint can carry dead neurons (MiniCPM5-2B: 13 all-zero
   rows in decoder layer 0's MLP). Blockwise quantization emits scale 0
