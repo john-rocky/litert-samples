@@ -34,9 +34,9 @@ Three modes:
     the repo's chat_template.jinja, the `thought` channel declared,
     max_num_tokens 4096, an externalized embedder section, and NO zero
     blockwise scale anywhere (the int4 CPU-load killer). With
-    --expect-activation fp32|fp16 it also unpacks the bundle and asserts what
-    model.toml declares (the int8 GPU fix). Needs `pip install
-    litert-lm-builder` (and the litert-lm CLI for --expect-activation).
+    --expect-activation fp32|fp16 it also asserts the activation dtype the
+    prefill/decode section declares (the int8 GPU fix). Needs `pip install
+    litert-lm-builder`.
 
       python verify_minicpm5_2b.py model.litertlm --check-metadata [--expect-activation fp32]
 
@@ -255,13 +255,23 @@ def zero_blockwise_scales(model, sections):
   return total, tensors
 
 
-def declared_activation(args):
-  with tempfile.TemporaryDirectory() as td:
-    subprocess.run([args.litert_lm, "unpack", str(args.model), "--output-dir", td],
-                   check=True, capture_output=True)
-    toml = Path(td, "model.toml").read_text()
-  m = re.search(r'prefer_activation_type\s*=\s*"([^"]+)"', toml)
-  return m.group(1) if m else None
+def declared_activation(model):
+  """The prefer_activation_type the prefill/decode section declares, or None.
+
+  The declaration is a section metadata item (`litert-lm unpack` shows it as
+  an `additional_metadata` entry in model.toml); the peek output lists it
+  next to the section's model_type, so no unpacking is needed.
+  """
+  from litert_lm_builder import litertlm_peek
+
+  buf = io.StringIO()
+  litertlm_peek.peek_litertlm_file(str(model), None, buf)
+  for sm in re.finditer(r"Section \d+:\n(.*?)Data Type:\s*TFLiteModel", buf.getvalue(), re.S):
+    items = sm.group(1)
+    if "tf_lite_prefill_decode" in items:
+      m = re.search(r"prefer_activation_type, Value \(String\): (\S+)", items)
+      return m.group(1) if m else None
+  return None
 
 
 def check_metadata(args):
@@ -326,9 +336,11 @@ def check_metadata(args):
         + (f"; zeros in {', '.join(bad[:4])}" if bad else ""))
 
   if args.expect_activation:
-    act = declared_activation(args)
-    check(f"bundle declares prefer_activation_type {args.expect_activation}",
-          act == args.expect_activation, f"declared {act!r}")
+    act = declared_activation(args.model)
+    # No declaration = the runtime default (fp16 on the GPU backend).
+    ok = act == args.expect_activation or (act is None and args.expect_activation == "fp16")
+    check(f"activation dtype in effect is {args.expect_activation}", ok,
+          f"declared {act!r}" + (" (none = runtime default fp16)" if act is None else ""))
 
   ok = all(checks)
   print(f"\n  {'PASS' if ok else 'FAIL'}: {sum(checks)}/{len(checks)} metadata checks")
