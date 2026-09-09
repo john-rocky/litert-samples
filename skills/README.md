@@ -6,6 +6,7 @@ Each skill is a self-contained `SKILL.md` playbook covering one stage of taking 
 
 ## Available skills
 
+* [`litert-conversion-workflow/`](litert-conversion-workflow/) — Convert a Hugging Face LLM or vision-language model checkpoint into a `.litertlm` bundle for the LiteRT-LM runtime with verified quality: classify the architecture against known runtime walls, pick the recipe family, export, quantize, gate against the source model, and publish. The human-readable version is the [model conversion cookbook](../models/README.md).
 * [`gpu-clean-conversion/`](gpu-clean-conversion/) — Convert a PyTorch or Hugging Face model into a LiteRT model that runs fully on the GPU via the CompiledModel API, with verified-correct output, laid out as a model recipe.
 * [`accuracy-safe-quantization/`](accuracy-safe-quantization/) — Shrink a converted LiteRT model with ai-edge-quantizer (fp16 / int8 / int4) without losing accuracy, verifying parity against the float source after every step.
 * [`on-device-verification/`](on-device-verification/) — Prove a converted or quantized model on the actual device via the CompiledModel API: confirm GPU residency, compare device output against the source model, and diagnose device-only failures.
