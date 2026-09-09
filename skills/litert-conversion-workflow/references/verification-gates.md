@@ -261,6 +261,21 @@ mitigation; note the context-growth caveat on the card.
   gate on the GPU backend (CPU pass ≠ GPU pass; fp16 accumulation flips
   marginal answers). On failure, grep the log for the named op and route
   through `architecture-walls.md`.
+- **Gate the GPU backend with the model's *default* activation dtype, and
+  on a thinking model watch the thought close, not just the answer.** The
+  GPU executor runs activations in fp16 unless the bundle declares
+  `prefer_activation_type = "fp32"` in its `model.toml`; over a deep
+  decoder that is enough to steer a long reasoning chain away from its
+  terminator (MiniCPM5-2B int8: one gate question ran 2000+ tokens on the
+  GPU and never emitted `</think>` — CPU answered in 452 tokens). The
+  declaration is a repack (weights untouched) and costs ~15 % GPU decode;
+  it is *not* a blanket fix — on the same model's int4 file the fp16
+  default passed and fp32 reproduced the CPU reference's non-terminating
+  chains. Decide per file from a thinking-on A/B, record what the bundle
+  declares (`litert-lm unpack` → `model.toml`), and score an unclosed
+  thought as a degenerate answer, never as a pass on the text that
+  happened to come before it. Worked example (`--thinking-ab`,
+  `--expect-activation`): `models/minicpm/minicpm5_2b/converted/`.
 - **Device verdict**: the desktop GPU sieve does not transfer — iOS Metal
   has its own compiler bugs, mobile GPUs reject ops desktop accepts.
   Gate on the actual target device before any public claim; the

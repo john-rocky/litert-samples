@@ -214,6 +214,17 @@ are the LLM-specific facts that override intuition:
   materializes fp32 weights at prepare time (RAM = fp32, not the file
   size), and its int4 form crashes the Apple GPU delegate. Prefer
   dynamic; use weight-only deliberately.
+- **All-zero weight rows break blockwise int4 on the CPU backend only.**
+  A dense checkpoint can carry dead neurons (MiniCPM5-2B: 13 all-zero
+  rows in decoder layer 0's MLP). Blockwise quantization emits scale 0
+  for each of their blocks; XNNPACK refuses to load the tensor
+  (`unsupported scale value (0.000000) ... for INT4 tensor`) while the
+  GPU delegate accepts the same file silently — so a GPU-only gate ships
+  a bundle that dies on every CPU. Scan the exported flatbuffer for zero
+  blockwise scales and set them to a positive epsilon in place (the
+  quantized values in a zero block are 0, so the dequantized weights are
+  unchanged); per-channel int8 is unaffected. Worked example with the
+  patch tool: `models/minicpm/minicpm5_2b/converted/`.
 - **CPU and GPU invert**: on CPU, int8 beats int4-blockwise on prefill
   *and* quality; on GPU, int4 prefills ~4× faster at equal decode. If
   both backends matter, ship both variants and say which is which.
