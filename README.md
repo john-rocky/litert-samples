@@ -35,7 +35,7 @@ All runnable sample applications and interactive playgrounds are organized under
 
 ### **2. `models/` — Model Recipes & Export Pipelines**
 
-Contains standalone model conversion scripts, export recipes, and model-specific utilities. Many are working in process. Start with the [model conversion cookbook](models/README.md): the step-by-step instructions for taking a Hugging Face checkpoint to a verified `.litertlm` bundle or `.tflite` graph, with the recipes as worked examples.
+Contains standalone model conversion scripts, export recipes, and model-specific utilities. Many are working in process. Start with the [model conversion cookbook](models/conversion.md): the step-by-step instructions for taking a Hugging Face checkpoint to a verified `.litertlm` bundle or `.tflite` graph, with the recipes as worked examples.
 
 ### **3. `utilities/` — Shared Tools & Helper Scripts**
 
