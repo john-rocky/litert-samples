@@ -132,6 +132,15 @@ When the comparison is between two bundles of the same weights (a re-pack agains
 - **First inference includes shader compilation.** Correctness on the
   first run is fine; never quote first-run latency, and never let a
   latency number travel without its residency line.
+- **Record a demo before the measured runs, on a rested phone.** A
+  screen recording made after measured runs on the same phone shows a
+  warm phone: on a Galaxy S26 two forms took 1.25× and 1.71× their
+  measured times on a 54-minute recording (172.5 s vs 137.6 s, 121.6 s
+  vs 71.1 s) although the GPU's clock limit read full at the tap.
+  Recorded before any other transcription, after a rest to thermal
+  status 0, the same form took 1.04× (73.7 s vs 71.1 s). Read the GPU's
+  thermal level again right before the tap: a load that compiles on the
+  GPU can leave it raised for a few seconds.
 - **One device proves correctness, not portability.** GPU compilers
   differ per vendor — a compile ceiling on one chip may not exist on
   another. "Runs on Android GPUs" means a device matrix (your own
