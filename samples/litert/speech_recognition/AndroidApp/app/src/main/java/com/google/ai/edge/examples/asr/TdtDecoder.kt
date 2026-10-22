@@ -26,9 +26,21 @@ import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
 
-/** Token Duration Transducer (TDT) decoder. */
-class TdtDecoder(private val compiledModel: CompiledModel, private val modelConfig: ModelConfig) :
-  LiteRtRunner.Decoder {
+/**
+ * Token Duration Transducer (TDT) decoder.
+ *
+ * With [separateBuffers], decode and decode_1 each run on the buffers created for them and each
+ * buffer keeps one role: the encoder output and the LSTM states are copied into the input buffers.
+ * The app sets it on the NPU, where a buffer handed from one signature to the other, or used as an
+ * input in one run and as an output in the next, makes later runs fail on the Qualcomm NPU ("Failed
+ * to find memHandle"). Without it, decode_1 runs on decode's state buffers and both read the
+ * encoder's output buffer, which saves the copies.
+ */
+class TdtDecoder(
+  private val compiledModel: CompiledModel,
+  private val modelConfig: ModelConfig,
+  private val separateBuffers: Boolean = false,
+) : LiteRtRunner.Decoder {
   private val inputBuffers = compiledModel.createInputBuffers(DECODE_SIGNATURE)
   private val outputBuffers = compiledModel.createOutputBuffers(DECODE_SIGNATURE)
 
@@ -59,6 +71,8 @@ class TdtDecoder(private val compiledModel: CompiledModel, private val modelConf
   private val statesBuffers =
     listOf(listOf(inputBuffers[2], inputBuffers[3]), listOf(outputBuffers[1], outputBuffers[2]))
   private var inputStatesBuffersIndex = 0
+  // With separateBuffers, the input buffers that take the states of each emitted token.
+  private val statefulInputBuffers = inputBuffersOfDecode1 ?: inputBuffers
   private val numOfStates =
     compiledModel.getInputTensorType(inputBufferName(2), DECODE_SIGNATURE).numElements
 
@@ -66,7 +80,18 @@ class TdtDecoder(private val compiledModel: CompiledModel, private val modelConf
     sequence {
       // Clear the states as initial states are all zeros.
       val zeroStates = FloatArray(numOfStates) { 0.0f }
-      statesBuffers[inputStatesBuffersIndex].forEach { it.writeFloat(zeroStates) }
+      if (separateBuffers) {
+        // Copy the encoder output into the input buffers of decode and decode_1.
+        encodeOutputBuffers.forEachIndexed { index, buffer ->
+          val encoderOutput = buffer.readFloat()
+          inputBuffers[index].writeFloat(encoderOutput)
+          inputBuffersOfDecode1?.get(index)?.writeFloat(encoderOutput)
+        }
+        inputBuffers[2].writeFloat(zeroStates)
+        inputBuffers[3].writeFloat(zeroStates)
+      } else {
+        statesBuffers[inputStatesBuffersIndex].forEach { it.writeFloat(zeroStates) }
+      }
 
       // Start inference with decode signature for better quality in sequence start as stateless
       // decoding can keep context better than decode_1, stateful decoding.
@@ -82,9 +107,10 @@ class TdtDecoder(private val compiledModel: CompiledModel, private val modelConf
       while (timeIndex < maxTimeIndex) {
         inferenceTokenIdsBuffer.writeInt(inferenceTokenIds)
 
+        val outputBuffersOfRun = getOutputBuffers(inferenceSignature, inferenceLogitsBuffer)
         compiledModel.run(
-          getInputBuffers(encodeOutputBuffers, inferenceTokenIdsBuffer),
-          getOutputBuffers(inferenceLogitsBuffer),
+          getInputBuffers(inferenceSignature, encodeOutputBuffers, inferenceTokenIdsBuffer),
+          outputBuffersOfRun,
           inferenceSignature,
         )
 
@@ -127,11 +153,18 @@ class TdtDecoder(private val compiledModel: CompiledModel, private val modelConf
 
         if (numOfInferenceTokenIds == 1 && tokenId != blankTokenId) {
           // Stateful RNN decoder: adopt the new LSTM states by swapping the
-          // input and output state buffers — but only on a non-blank emission.
+          // input and output state buffers (with separateBuffers, by copying
+          // the states this run wrote into the input states of the next run)
+          // — but only on a non-blank emission.
           // In RNN-T greedy decoding the prediction network advances only when
           // a token is emitted; adopting the state on blank steps re-consumes
           // the last token once per blank and degrades the transcript.
-          inputStatesBuffersIndex = 1 - inputStatesBuffersIndex
+          if (separateBuffers) {
+            statefulInputBuffers[2].writeFloat(outputBuffersOfRun[1].readFloat())
+            statefulInputBuffers[3].writeFloat(outputBuffersOfRun[2].readFloat())
+          } else {
+            inputStatesBuffersIndex = 1 - inputStatesBuffersIndex
+          }
         }
       }
 
@@ -139,18 +172,27 @@ class TdtDecoder(private val compiledModel: CompiledModel, private val modelConf
     }
 
   private fun getInputBuffers(
+    signature: String,
     encodeOutputBuffers: List<TensorBuffer>,
     tokenIdsBuffer: TensorBuffer,
   ) =
-    buildList<TensorBuffer> {
-      // Avoid copy. Build a list of TensorBuffers directly from the encoder output buffers.
-      addAll(encodeOutputBuffers)
-      add(tokenIdsBuffer)
-      addAll(statesBuffers[inputStatesBuffersIndex])
+    if (separateBuffers) {
+      if (signature == DECODE_1_SIGNATURE) inputBuffersOfDecode1!! else inputBuffers
+    } else {
+      buildList<TensorBuffer> {
+        // Avoid copy. Build a list of TensorBuffers directly from the encoder output buffers.
+        addAll(encodeOutputBuffers)
+        add(tokenIdsBuffer)
+        addAll(statesBuffers[inputStatesBuffersIndex])
+      }
     }
 
-  private fun getOutputBuffers(logitsBuffer: TensorBuffer) =
-    listOf(logitsBuffer) + statesBuffers[1 - inputStatesBuffersIndex]
+  private fun getOutputBuffers(signature: String, logitsBuffer: TensorBuffer) =
+    if (separateBuffers) {
+      if (signature == DECODE_1_SIGNATURE) outputBuffersOfDecode1!! else outputBuffers
+    } else {
+      listOf(logitsBuffer) + statesBuffers[1 - inputStatesBuffersIndex]
+    }
 
   private companion object {
     const val DECODE_SIGNATURE = LiteRtRunner.DECODE_SIGNATURE

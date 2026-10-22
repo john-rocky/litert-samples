@@ -261,7 +261,7 @@ class MainActivity : AppCompatActivity() {
                 CtcDecoder(tokenizer!!.vocabSize)
               }
               modelKey.contains("-tdt") -> { model, config ->
-                TdtDecoder(model, config)
+                TdtDecoder(model, config, separateBuffers = accelerator == Accelerator.NPU)
               }
               else -> { model, config ->
                 LiteRtRunner.DefaultDecoder(model, config)
