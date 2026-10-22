@@ -31,7 +31,7 @@ only on evidence:
 
 | Budget / model | Recipe |
 |---|---|
-| ~2× smaller, zero risk | **fp16 float-casting.** Weights cast to fp16, compute stays float. On a GPU that already computes in fp16 this is close to free numerically — verify anyway |
+| ~2× smaller, zero risk | **fp16 float-casting.** Weights cast to fp16, compute stays float. On a GPU that already computes in fp16 this is close to free numerically — verify anyway. For a bf16 checkpoint the cast keeps every weight of magnitude at least 2^-17 and below 2^16 exactly (smaller ones are rounded to fp16 subnormals or zero, off by at most 2^-25; 2^16 and above overflow), and at GPU FP32 the GPU delegate takes each DEQUANTIZE → FULLY_CONNECTED pair whole on Adreno and Mali (LiteRT 2.2.0 on a Galaxy S26 and a Pixel 8a) |
 | ~4× smaller — encoders, conv nets, diffusion blocks | **Dynamic-range int8 channelwise.** int8 weights, float activations; this shape rides the GPU delegate |
 | Dynamic int8 lost quality (conditioning, embeddings) | **Weight-only, same bits.** Inserts an explicit DEQUANTIZE so the matmul runs in float and activations are never quantized — more quality, some latency |
 | ~7× smaller — LLM / autoregressive decoders | **int4 blockwise-32 + OCTAV, embeddings int8.** Never channelwise for a decoder: it looks fine on short outputs and degenerates over long generations. A blockwise recipe needs the quantized dimension divisible by the block (a 3-input linear fails block-32 with `Quantized dimension 3 … is not divisible`) |
