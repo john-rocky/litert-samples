@@ -195,6 +195,8 @@ When the comparison is between two bundles of the same weights (a re-pack agains
   different texts over three seeds). Compare the text with the
   reference teacher-forced on the run's history, not with the
   reference's text.
+- **Score a demo in the form the app ships, before you build the scene.** The picture the app sends (a fixed-size stretch, not the source photo), the thinking mode and the room the context leaves for the output each change the result. On 30 placement requests to one 2B VLM, the source model on the app's 512 × 512 stretch got 6 right with thinking off and 21 with thinking on; with thinking on, the int4 file with a 2,048-token context got 17 (7 thoughts reached the end of the context with no answer), and the same recipe with a 4,096-token context got 21.
+- **Before a demo claims that only this model can do it, run every cheaper route at its best.** Other small VLMs in their own authors' prompt forms, with thinking off and on where the model has a switch, each answer read in its own format and in its favour (a 0–1 scale read × 1000, x and y swapped), and a pipeline: an open-vocabulary detector with a fixed rule, and the detector's boxes given to a text LLM. Film only requests that the model answers and every route misses. On the same 30 requests the other small VLMs stayed below the line (8 under the model's 21), but the detector with a fixed rule got 14, so the claim was narrowed to what the rule cannot do: answer a free-text request with a point.
 
 ## Output layout
 
