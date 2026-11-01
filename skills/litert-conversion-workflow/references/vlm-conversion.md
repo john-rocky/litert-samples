@@ -23,6 +23,16 @@ Consequences:
 
 - **Bake the model's normalization (mean/std) and any NCHW transpose
   into the vision graph** — the runtime will not do it.
+- **Take the u8 back before normalizing.** The runtime hands the encoder
+  `float(u8) * (1/255)`; a processor formula such as `(x - 0.5) / 0.5`
+  applied to that in float32 loses the low bits (relative error 1.5e-5 at
+  u8 = 128), and on a picture with flat grey regions a float32 re-write
+  of LFM3-VL-2B's vision tower landed 13-18 times farther from a float64
+  reference than the source model's own float32. Start the graph with
+  `u = floor(x * 255 + 0.5)` (exact for all 256 values; FLOOR is delegated
+  on the Metal GPU), apply the processor's formula to `u`, and compare
+  with a float64 run on a flat-region picture, not only with the source's
+  float32.
 - Any permissive single-square-image VLM can be shipped by
   hand-assembling this bundle. The stock exporter's VLM path covers only
   its own first-party family — for everything else, export the graphs
