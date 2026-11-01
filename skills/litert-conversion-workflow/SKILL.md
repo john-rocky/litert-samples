@@ -140,6 +140,14 @@ publish checklist: `references/verification-gates.md` §Publish.
 - **One variable at a time at ship time.** Repair published artifacts
   from the published files, not from local experiments; verify by
   checksum that what you gated is what you shipped.
+- **Dry-run long export chains on paths, not only on arguments.** Keep
+  one plan file, skip finished steps, record a failed step and go on
+  with the independent ones, and check in the dry run that each step's
+  output path is the next step's input path. litert-torch 0.11.0's
+  `export_hf` with `bundle_litert_lm=False` and without
+  `keep_temporary_files=True` writes its graph into a `mkdtemp`
+  directory inside the output directory; every later step that read
+  the graph from the output directory failed within about a minute.
 
 ## Output layout
 

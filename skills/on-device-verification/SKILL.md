@@ -180,6 +180,21 @@ When the comparison is between two bundles of the same weights (a re-pack agains
   are not affected. A harness that loops N runs in one process measures
   a drifting model and reports success. Run N processes, and gate each
   prompt length in a fresh process.
+- **The LiteRT-LM CLI has no system prompt.** In v0.18.1
+  `litert_lm_advanced_main` sends the prompt file as one user message.
+  To run fixtures that carry a system prompt on the phone, build a gate
+  copy of the bundle whose template renders a user message's leading
+  marker part as the system message, every other section
+  byte-identical, and check that the runtime renders that template as
+  the processor renders the original on a small model's bundle with
+  the same template before the device run.
+- **Interleaved text and audio output depends on the sampled audio.**
+  The text after the first audio chunk is conditioned on the audio
+  frames sampled before it, so a greedy text can differ from the
+  reference's text with nothing wrong (the reference itself gave two
+  different texts over three seeds). Compare the text with the
+  reference teacher-forced on the run's history, not with the
+  reference's text.
 
 ## Output layout
 
