@@ -105,6 +105,7 @@ publish checklist: `references/verification-gates.md` §Publish.
 | Output is fluent garbage / prompt seems ignored | Tokenizer packaging (`template-tokenizer-traps.md` §Tokenizer) |
 | Runtime crash: `Token id N is out of range` | Added special tokens dropped from the packaged tokenizer — same file, §Added tokens |
 | Stop token printed as literal text / model never stops | Stop-token metadata incomplete — §Stop tokens |
+| Tool calls come back as text / with tools passed, a reply fails `Failed to parse tool calls from code block` | No `tool_call_config` (LiteRT-LM 0.19.0, `generic_model` only) / the config is in and a closed `<tool_call>` block does not match its regex — `template-tokenizer-traps.md` §Adding tool_call_config |
 | Answers fine at some prompt lengths, garbage/empty at others | Prefill-padding state corruption — run the length sweep, `verification-gates.md` |
 | Message two fails (or message three, after a reply that carried a thought) or quality drops mid-conversation | Template prefix contract violated — `template-tokenizer-traps.md` §Multi-turn |
 | int4 passes the 8-question gate but tanks the benchmark | The floor-gate trap — gate is a floor, parity is the verdict (`verification-gates.md`) |

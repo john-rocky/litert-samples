@@ -336,6 +336,20 @@ mitigation; note the context-growth caveat on the card.
 - After push, verify **remote checksum == the file you gated** (LFS
   sha256). When repairing a published artifact, start from the
   *published* file, not a local experiment, and re-gate after repair.
+- A re-pack that changes only LlmMetadata, with the weights untouched
+  (such as adding `tool_call_config`, see `template-tokenizer-traps.md`),
+  is checked against the file it came from on three points:
+  - **identity by section** — every section other than LlmMetadata keeps
+    its sha256; the file's own sha256 changes on every pack (new uuid and
+    creation timestamp in the header) even when nothing inside does, so
+    do not compare the two files by hash;
+  - **tool calls by structure** — with tools passed, the reply carries
+    `tool_calls` with the expected name and arguments, and a second turn
+    that returns the result as a `role: tool` message (a `tool_response`
+    content part) is answered from it;
+  - **plain prompts byte for byte** — without tools, greedy replies equal
+    the original file's, and a thinking model still shows or hides its
+    thought with thinking on or off as before.
 - The card states: minimum runtime version and why; exact toolchain
   versions; recipe per variant with sizes; gate results with device +
   backend + runtime named; which variant is the quality row vs the speed

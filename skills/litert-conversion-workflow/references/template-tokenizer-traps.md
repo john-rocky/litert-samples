@@ -215,6 +215,67 @@ byte for byte: the INTERNAL error prints both strings.
   every plain conversation. Choose the default to match how you gated
   the model.
 
+## Adding tool_call_config to a generic_model bundle
+
+From LiteRT-LM 0.19.0, a bundle whose `llm_model_type` is
+`generic_model` and whose LlmMetadata carries `tool_call_config` (field
+15 in `runtime/proto/llm_metadata.proto`) returns the model's tool calls
+as `tool_calls` (function name and JSON arguments); without it, the call
+stays in the reply as text. The runtime accepts the config only on
+`generic_model` (`tool_call_config is only supported for generic_model.`,
+so a `fast_vlm` bundle is refused), and it parses only what the model
+writes: if the chat template does not render the `tools` it is given,
+the model never sees them and the config alone is not enough.
+
+Unpack the bundle with `litert-lm unpack`, add the two fields below to
+its `LlmMetadataProto.pbtext` and pack it with `litert-lm pack` from
+0.19.0 (flags and the overwrite trap: `recipe-selector.md` §Hybrids,
+point 1; gates: `verification-gates.md` §6); for the Qwen3.5 call format
+the fields are those of LiteRT-LM's
+`models/qwen3_5/LlmMetadataProto.pbtext` at v0.19.0, byte for byte:
+
+```
+supports_function_calling: true
+tool_call_config {
+  fence_start: "<tool_call>"
+  fence_end: "</tool_call>"
+  regex_syntax {
+    tool_call_regex: "(?s)<function=([^>]+)>(.*?)</function>"
+    argument_regex: "(?s)<parameter=([^>]+)>\\s*(.*?)\\s*</parameter>"
+  }
+}
+```
+
+Change nothing else: weights, template, stop tokens, sampler and model
+type stay as they were, and `supports_function_calling` is only reported
+back through `ModelInfo` (the parsing comes from `tool_call_config`). Do
+not copy the upstream file's `pad_token` (`<|endoftext|>`) into a bundle
+you exported yourself without reading your graph's padding guard: 0.19.0
+fills the unused positions of each prefill input with the metadata's pad
+token, and with id 0 only when none is declared. In a Qwen3.5 hybrid
+export whose guard treats only id 0 as padding, the copied token changed
+the greedy answer on 2 of 3 prompts on CPU and 3 of 3 on GPU (Qwen3.5-4B
+int8 on a Mac, 0.19.0), while the same re-pack without it matched the
+original on all 3 CPU prompts. Leave out the upstream file's
+`min_runtime_version: "0.19.0"` as well and keep the card's minimum:
+re-packed files loaded on 0.15.0, 0.18.0 and 0.18.1 and gave the
+original's answer to a plain prompt; run yours once on the oldest
+runtime the card names, and say on the card that tool-call parsing needs
+0.19.0.
+
+Parsing runs only when the conversation is given tools, and then a
+closed `<tool_call>…</tool_call>` block that matches no `tool_call_regex`
+fails the whole reply with `INVALID_ARGUMENT: Failed to parse tool calls
+from code block`. The switch that keeps such a block as text
+(`return_error_on_parse_failure`, default true) exists only in the C++
+API (`ConversationConfig::Builder::SetReturnErrorOnParseFailure`); no
+other language binding of 0.19.0 exposes it. Seen with Qwen3.5-4B Mixed
+INT4 on 0.19.0 (Python API, Mac CPU): with tools passed and a request
+for a Python function that removes the `<tool_call>` and `</tool_call>`
+tags, the model wrote both tags in its code and the reply failed, where
+the original file returned the same code as text; list the case on the
+card as a known limitation, naming the prompt.
+
 ## Start token
 
 BOS convention lives in `recipe-selector.md` §Start token — wrong BOS is
