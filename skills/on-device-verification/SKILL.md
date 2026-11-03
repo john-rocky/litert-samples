@@ -168,6 +168,16 @@ When the comparison is between two bundles of the same weights (a re-pack agains
   net GPU loss — estimate `calls × per-call overhead` against the CPU
   time before re-exporting for GPU; the crossover sits around
   hundreds of nodes per call.
+- **Two settings timed in separate sittings do not rank.** One setting
+  can move by more than the difference you are measuring: on a
+  Pixel 11 Pro CPU the same setting (float16 arithmetic, 4 threads,
+  cache copied per chunk) gave a median chunk time of 67.702 ms in one
+  sitting and 76.311 ms in another (+12.7 %), each the mean of two
+  runs, and the spread sat in the second pass over the same five files
+  (first pass 65.4–66.0 ms in all four runs, second pass 65.8–98.3 ms).
+  Time both settings in one sitting in the order A B B A and compare
+  the mean of each setting's two runs; a number from another sitting
+  does not rank a setting.
 - **The host CPU run is the numerical reference, not a GPU test** — the
   host GPU (the Metal accelerator of the macOS wheel) is a different
   compiler from the phone's, so a host GPU pass is not a device result.
