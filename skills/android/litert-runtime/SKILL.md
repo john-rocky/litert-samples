@@ -6,12 +6,16 @@ description: Configures and implements LiteRT (.tflite) on-device inference on A
   helpers, TensorBuffer reuse, CPU memory optimization, Bitmap preprocessing, AndroidViewModel
   GPU-to-CPU fallback with warm-up on a single-thread dispatcher, LiteRT in Google
   Play services (play-services-litert), migrating from legacy org.tensorflow.lite.Interpreter,
-  GpuDelegate, or play-services-tflite, and latency benchmarking. Don't use for running
-  generative text LLMs with .litertlm files or for Python model conversion.
+  GpuDelegate, or play-services-tflite, and latency benchmarking. Also use it to fix
+  an app that already runs a model and gives a different result than in Python for
+  the same input (writeFloat writes a shorter array without an error, and getPixels
+  can't read a HARDWARE bitmap), freezes while the model runs, or reloads the model
+  on rotation. Don't use for running generative text LLMs with .litertlm files or
+  for Python model conversion.
 license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
-  last-updated: '2026-10-28'
+  last-updated: '2026-11-06'
   keywords:
   - LiteRT
   - CompiledModel

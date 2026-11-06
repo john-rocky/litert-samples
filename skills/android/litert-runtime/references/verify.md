@@ -17,6 +17,17 @@ Next, run `Accelerator.GPU` and compare in two ways:
 1. **Numbers**: Compute maximum absolute difference and Pearson correlation against the reference dump.
 2. **Task result**: Check task-level agreement (top-1 argmax, segmentation mask, or output text). Because the GPU computes in FP16, the least significant digits move slightly, whereas the task result shouldn't change.
 
+When the `Accelerator.CPU` run differs and the app builds the input from a
+picture, compare the array the app writes with the input that produced the
+reference. Check its length against the input element count (`writeFloat` writes
+a shorter array without an error,
+[Step 2](../SKILL.md#step-2-implement-the-inference-helper-class)), the bitmap's
+config (by default `ImageDecoder` returns `HARDWARE` bitmaps, which `getPixels`
+can't read; copy to `ARGB_8888` first,
+[Step 4](../SKILL.md#step-4-preprocess-inputs-to-match-the-model-contract)),
+then the input dimensions, mean, standard deviation, channel order, and tensor
+layout.
+
 ## Diagnostic indicators
 
 - **First inference slow**: GPU shader compilation runs during the first execution. The helper constructor's warm-up call absorbs this cost; never include the first run in timing metrics.

@@ -6,13 +6,15 @@ description: Builds an Android app that runs an open text LLM on the device, on 
   .litertlm model from Hugging Face litert-community (Gemma, Qwen, Llama, Phi), including
   the Gradle dependency, the GPU manifest entries, getting the model file onto the
   device, Engine initialization off the main thread, a streamed multi-turn Conversation
-  with sendMessageAsync, and the AndroidViewModel and Compose screen. Don't use for
-  running .tflite vision, audio, or embedding models with the CompiledModel API, for
-  image or audio input, tool calling, or NPU backends, or for converting models.
+  with sendMessageAsync, and the AndroidViewModel and Compose screen. Also use it
+  to fix a chat app where replies take seconds to start, memory grows, or a reply
+  forgets earlier messages (a new Engine and Conversation per message). Don't use
+  for running .tflite vision, audio, or embedding models with the CompiledModel API,
+  for image or audio input, tool calling, or NPU backends, or for converting models.
 license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
-  last-updated: '2026-10-20'
+  last-updated: '2026-11-06'
   keywords:
   - LiteRT-LM
   - litertlm
