@@ -1,0 +1,5 @@
+# Generated model graphs and host inputs are staged to the device, never committed.
+*.tflite
+*.bin
+gen_bins/
+__pycache__/
