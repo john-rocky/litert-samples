@@ -127,6 +127,10 @@ When the comparison is between two bundles of the same weights (a re-pack agains
   of those moments too: content-sensitive tokens, not an op bug. List
   the failures by input position before bisecting ops, and keep the
   subset for speed iterations only.
+- **For a multilingual speech model, run the source card's own
+  mixed-language sample on every form and backend**; clip sets with one
+  language per clip passed two forms that translated one language into
+  the other.
 - **The fp32-forcing knob is for attribution, not shipping.** It tells
   you precision is the cause; the fix is a rewrite or hybrid placement.
 - **First inference includes shader compilation.** Correctness on the
