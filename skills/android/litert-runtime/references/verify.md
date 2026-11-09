@@ -21,10 +21,10 @@ When the `Accelerator.CPU` run differs and the app builds the input from a
 picture, compare the array the app writes with the input that produced the
 reference. Check its length against the input element count (`writeFloat` writes
 a shorter array without an error,
-[Step 2](../SKILL.md#step-2-implement-the-inference-helper-class)), the bitmap's
+Step 2 of the skill), the bitmap's
 config (by default `ImageDecoder` returns `HARDWARE` bitmaps, which `getPixels`
 can't read; copy to `ARGB_8888` first,
-[Step 4](../SKILL.md#step-4-preprocess-inputs-to-match-the-model-contract)),
+Step 4 of the skill),
 then the input dimensions, mean, standard deviation, channel order, and tensor
 layout.
 
