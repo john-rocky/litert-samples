@@ -436,12 +436,13 @@ Migration mandates that apply to every migrated app:
 - **Never** allocate new `TensorBuffer` instances on every inference call; failing to close per-frame `TensorBuffer` objects leaks C++ heap memory.
 - **Never** benchmark `model.run` without including output buffer readback (`outputs[0].readFloat`).
 - **Never** mix `org.tensorflow:tensorflow-lite*` artifacts (such as `org.tensorflow:tensorflow-lite-support`) with `com.google.ai.edge.litert:*` artifacts; both ship the `org.tensorflow.lite.*` classes and cause duplicate class build failures.
-- **Never** use `Accelerator.GPU` on LiteRT 2.3.0 without adding the `com.google.ai.edge.litert:litert-gpu:2.3.0` dependency alongside `com.google.ai.edge.litert:litert:2.3.0`; with the CPU as a second accelerator, the model silently runs on the CPU.
+- **Never** use `Accelerator.GPU` on the bundled runtime 2.3.0 without adding the `com.google.ai.edge.litert:litert-gpu:2.3.0` dependency alongside `com.google.ai.edge.litert:litert:2.3.0`; with the CPU as a second accelerator, the model silently runs on the CPU. The Google Play services runtime needs no GPU artifact.
 - **Never** set `xnnPackFlags = 0x20` on its own to get the transient indirection buffer; the value replaces the runtime's default `0x3`, so pass `0x23`.
 
 ## Checklist
 
-- \[ \] Is `minSdk` set to `24` or higher and are both `com.google.ai.edge.litert:litert:2.3.0` and `com.google.ai.edge.litert:litert-gpu:2.3.0` added in `app/build.gradle.kts`?
+- \[ \] Is `minSdk` set to `24` or higher, and does `app/build.gradle.kts` add one runtime only: `com.google.android.gms:play-services-litert:17.0.0` with `kotlinx-coroutines-play-services` (Google Play services), or both `com.google.ai.edge.litert:litert:2.3.0` and `com.google.ai.edge.litert:litert-gpu:2.3.0` (bundled)?
+- \[ \] On the Google Play services runtime, does every `CompiledModel.create` call get its `Environment` from `PlayServicesEnvironment`, with `setEnableGpu(true)`?
 - \[ \] Are all legacy `org.tensorflow:tensorflow-lite*` dependencies and `org.tensorflow.lite.*` imports removed?
 - \[ \] Do `CompiledModel.create`, `model.run`, and `close` all execute on the same single-thread background dispatcher?
 - \[ \] Are `TensorBuffer` instances allocated once, reused across calls, and closed before `model.close`, including when `init` or warm-up throws?

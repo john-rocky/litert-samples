@@ -124,7 +124,15 @@ Pick one path:
   and `<package>` with the app's application ID:
 
   1. `adb push <path> /data/local/tmp/model.litertlm`
-  2. `adb shell run-as <package> cp /data/local/tmp/model.litertlm files/`
+  2. `adb shell run-as <package> mkdir -p files`
+  3. `adb shell run-as <package> cp /data/local/tmp/model.litertlm files/`
+  4. `adb shell rm /data/local/tmp/model.litertlm`
+
+  The app's `files/` directory doesn't exist until the app first uses
+  `filesDir`, so step 2 creates it: right after an install, step 3 alone fails
+  with `cp: files/: Is a directory`. In the app, the path of the file is
+  `File(context.filesDir, "model.litertlm").absolutePath`. Step 4 frees the
+  storage of the first copy.
 - **Path B (in-app download)** : Write the download code in the app. Use the
   app's HTTP client to write into `filesDir`, or `DownloadManager` to write
   into `getExternalFilesDir(null)`. `DownloadManager` can't write to internal
@@ -340,7 +348,7 @@ lands while `release` stops a reply does nothing. A tap queued behind a
 
 Report the steps that apply to the user after the code compiles:
 
-- When Path A in Step 3 didn't run, copy the model to the device with the two `adb` commands from Path A.
+- When Path A in Step 3 didn't run, copy the model to the device with the `adb` commands from Path A.
 - When the app uses Path C in Step 3, create the AI pack module that holds the `.litertlm` file and upload the app to Play Console.
 - When no `.litertlm` file exists for the model, convert the model on a workstation. This skill doesn't convert models.
 - When the user asks for a complete reference app, point them to [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery/blob/main/README.md).
