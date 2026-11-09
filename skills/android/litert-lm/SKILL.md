@@ -331,6 +331,8 @@ lands while `release` stops a reply does nothing. A tap queued behind a
 ### Step 7: Manage the engine lifecycle
 
 - Keep the engine in the `ViewModel` for as long as its screen lives. When several screens share the engine, keep it in an application-scoped holder.
+- Keep only one `Backend.GPU()` engine open per process. In `litertlm-android` 0.17.1, 0.18.0, and 0.19.1, closing a second one makes the first one's next request crash the process with `SIGSEGV`. Use `Backend.CPU()` for the second, or close the first before loading it.
+- In a Navigation 3 app, `viewModel()` inside a `NavDisplay` entry returns the activity's `ViewModel` unless the `NavDisplay`'s `entryDecorators` include `rememberViewModelStoreNavEntryDecorator()` from `androidx.lifecycle:lifecycle-viewmodel-navigation3`. Pass `listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator())`: a list of your own replaces the default, which holds only the first one. Without the second one, the engine stays loaded and a reply keeps running after the user leaves the screen, and `onCleared` runs only when the activity ends.
 - The `ViewModel` keeps its own thread and scope. `viewModelScope` is cancelled before `onCleared` runs, so a close launched there wouldn't run. `onCleared` cancels `scope` once the close is done.
 - `release` turns `ready` off and calls `cancelProcess` until the streaming reply's flow has ended. The flow ends at the latest when the reply ends on its own. `release` then closes the conversation and the engine, each once.
 - `onCleared` and a `load` that replaces the model both call `release` under the `Mutex`, one at a time, because `release` suspends while a reply stops.
