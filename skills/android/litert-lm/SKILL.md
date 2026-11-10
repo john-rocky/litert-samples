@@ -47,6 +47,7 @@ changing the code.
 - **Single owner** : One single-thread executor owns the `Engine` and the `Conversation`. Creation, streaming, cancellation, and closing run on it.
 - **Close once** : `Engine` and `Conversation` are `AutoCloseable`. A second `close` on either throws `IllegalStateException`. So does `close` on an engine whose `initialize` threw. Store the engine only after `initialize` returns.
 - **Model outside the APK** : Pass an absolute path to `EngineConfig`. Never bundle a `.litertlm` file in `assets/`.
+- **Migration** : When the app already uses the MediaPipe LLM Inference API (`com.google.mediapipe:tasks-genai`, `LlmInference`), you must read [migration](references/migration.md) in full before you edit any file.
 
 ## Detailed steps
 
@@ -147,8 +148,7 @@ Create the engine with `EngineConfig(modelPath = ..., backend = ...,
 cacheDir = ...)` and call `initialize` on a background thread:
 
 - `Backend.CPU()` is the default of `EngineConfig` and needs nothing from the device.
-- `Backend.GPU()` needs the two manifest lines from Step 1. Without them, the engine initializes, and the first reply ends in the error `Can not find
-  OpenCL library on this device`.
+- `Backend.GPU()` needs the two manifest lines from Step 1. Without them, the GPU backend failed on both phones tried: on a Galaxy S26, the engine initialized and the first reply ended in the error `Can not find OpenCL library on this device`; on a Pixel 11 Pro, `initialize` itself failed with `Failed to create engine`.
 - `cacheDir` speeds up the second load.
 
 ### Step 5: Implement the conversation ViewModel
@@ -271,6 +271,11 @@ gives a chunk's text. `sendMessage(text)` blocks and returns the whole reply.
 The conversation keeps its history, so the next `send` continues the chat.
 `busy` keeps the button disabled until the flow completes.
 
+After `cancelProcess` stops a reply, that conversation takes no more messages: a
+later `sendMessage` throws `LiteRtLmJniException`, and the flow of a later
+`sendMessageAsync` ends with `CancellationException` before any chunk. To go on
+after a stop, close the conversation and create a new one.
+
 To set the sampling, pass `SamplerConfig(topK = 10, topP = 0.95,
 temperature = 0.8)` in `ConversationConfig`. All three parameters are required,
 and `topP` and `temperature` are `Double`.
@@ -351,6 +356,7 @@ Report the steps that apply to the user after the code compiles:
 |---|---|---|
 | First reply is slow. | `initialize` ran on first use. | Load at app start and set `cacheDir`. |
 | First GPU reply ends in `Can not find OpenCL library on this device`. | The manifest lacks the `uses-native-library` entries. | Add both entries from Step 1 inside `<application>`. |
+| GPU `initialize` fails with `Failed to create engine`, and logcat shows `OpenCL not supported on this platform. Using WebGPU instead.` | The manifest lacks the `uses-native-library` entries (seen on a Pixel 11 Pro). | Add both entries from Step 1 inside `<application>`. |
 | `close` throws `IllegalStateException`. | The engine or conversation was closed twice, or `initialize` threw. | Store the engine only after `initialize` returns, and set each field to `null` after `close`. |
 | Build fails with `[Hilt] Provided Metadata instance has version 2.4.0`. | Hilt 2.59.2 can't read the Kotlin 2.4 metadata in `litertlm-android` 0.18.0. | Follow Path A or Path B in Step 1. |
 

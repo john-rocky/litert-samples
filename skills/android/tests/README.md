@@ -2,7 +2,7 @@
 
 This Gradle project builds the Kotlin of [`litert-runtime`](../litert-runtime/SKILL.md) and [`litert-lm`](../litert-lm/SKILL.md) into two apps and runs it on a device, through the paths where a step fails: a load that throws part-way, a `load()` while a model is loaded, and `onCleared()` or `load()` while a reply is streaming.
 
-The apps' Kotlin is not kept here. At build time the `extractSkillCode` task takes the Kotlin code blocks out of each skill and writes them to `<module>/build/generated/skill/SkillCode.kt`, so the code under test is the text of the skill. Both `SKILL.md` files are the text [android/skills](https://github.com/android/skills) publishes: their code blocks are indented by four spaces and each shows its own imports, so the task moves the imports to the top of the file, each once, and takes only the blocks that start with an `import` or a `//` comment, which leaves out the Gradle and manifest blocks of step 1 (the module's `build.gradle.kts` and `AndroidManifest.xml` have them), the shell commands, and the calls shown inside a step. In the same way the `extractMigrationCode` task writes the Kotlin of `litert-runtime/references/migration.md`, whose code blocks start with a comment and share one block of imports, to `litert-runtime/build/generated/migration/MigrationCode.kt`, which goes into the test APK. Checked in are the package line (`skill-header.txt`), an activity that shows the skill's screen, the manifest, the tests, the models the tests load, and the golden output of the migration tests.
+The apps' Kotlin is not kept here. At build time the `extractSkillCode` task takes the Kotlin code blocks out of each skill and writes them to `<module>/build/generated/skill/SkillCode.kt`, so the code under test is the text of the skill. Both `SKILL.md` files are the text [android/skills](https://github.com/android/skills) publishes: their code blocks are indented by four spaces and each shows its own imports, so the task moves the imports to the top of the file, each once, and takes only the blocks that start with an `import` or a `//` comment, which leaves out the Gradle and manifest blocks of step 1 (the module's `build.gradle.kts` and `AndroidManifest.xml` have them), the shell commands, and the calls shown inside a step. In the same way the `extractMigrationCode` task writes the Kotlin of each skill's `references/migration.md`, whose code blocks start with a comment and share one block of imports, to `<module>/build/generated/migration/MigrationCode.kt`, which goes into the test APK. Checked in are the package line (`skill-header.txt`), an activity that shows the skill's screen, the manifest, the tests, the models the tests load, and the golden output of the migration tests.
 
 ## Run
 
@@ -23,8 +23,9 @@ Options, each added to the `./gradlew` line:
 
 - `-Pandroid.testInstrumentationRunnerArguments.backend=GPU` runs the LiteRT-LM tests on the GPU backend.
 - `-Pandroid.testInstrumentationRunnerArguments.modelPath=<path on the device>` uses another `.litertlm` file.
-- `-PlitertVersion=<version>` builds the `litert-runtime` app against another release of `litert` (`litert-gpu` is added from 2.3.0 on; for 2.2.0 or 2.1.6 add `-Pandroid.uniquePackageNames=false`, step 1 of the skill); `-PlitertlmVersion=<version>` builds the `litert-lm` app against another release of `litertlm-android`. The migration tests are built from 2.3.0 on, the first release of LiteRT Support under `com.google.ai.edge.litert.support`.
-- `-PskillsDir=<dir>` builds the apps from another copy of the two skills (a relative path counts from this directory). A copy without `litert-runtime/references/migration.md` is built without the migration tests.
+- `-Pandroid.testInstrumentationRunnerArguments.taskPath=<path on the device>` adds the LiteRT-LM migration test on a MediaPipe `.task` file (push the file first).
+- `-PlitertVersion=<version>` builds the `litert-runtime` app against another release of `litert` (`litert-gpu` is added from 2.3.0 on; for 2.2.0 or 2.1.6 add `-Pandroid.uniquePackageNames=false`, step 1 of the skill); `-PlitertlmVersion=<version>` builds the `litert-lm` app against another release of `litertlm-android`. The `litert-runtime` migration tests are built from 2.3.0 on, the first release of LiteRT Support under `com.google.ai.edge.litert.support`.
+- `-PskillsDir=<dir>` builds the apps from another copy of the two skills (a relative path counts from this directory). A copy without a skill's `references/migration.md` is built without that skill's migration tests.
 
 ## What the tests check
 
@@ -87,8 +88,24 @@ A model that was never closed cannot be reached from a test, which is why the fa
 
 A reply that was stopped ends its coroutine as cancelled; one that ran to its end does not. The tests use that, and a limit of 20 seconds until the coroutine ends, to tell the two apart.
 
+`MigrationCodeTest` (11 tests) runs the Kotlin of [`litert-lm/references/migration.md`](../litert-lm/references/migration.md) with the same model, on one thread that creates, uses, and closes every engine and conversation. A test that makes an engine of its own closes the shared engine first, so that one engine is open at a time. It is in `litert-lm/src/migrationTest/` and goes into the test APK with `MigrationCode.kt`:
+
+| Path | What is checked |
+|---|---|
+| `engineConfigFromOptions` with a limit of 1024 tokens, which makes the shared engine | the model path, the limit, the cache directory, and the backend reach `EngineConfig`, and the engine answers |
+| `samplerFromSessionOptions()`, and with an app's own values | the defaults are top-k 40, top-p 1.0, temperature 0.8, and seed 0; the values reach `SamplerConfig`, and a conversation with them answers |
+| `generateOnce` with a name and then with a question about it; the same two messages in one conversation | `generateOnce` doesn't know the name; the conversation does |
+| `conversationWithHistory` with the name in an earlier turn, with that turn and the system instruction of Step 5 of the skill, and with no turns; next to an open conversation | only the ones with the turn answer with the name; both open conversations answer with it |
+| a prompt that already carries the chat template, through `renderMessageIntoString` | the template's text before the prompt is in it twice |
+| `cancelProcess` after the first chunk of a long reply, then one more message on that conversation with `sendMessage` and with `sendMessageAsync`, a new conversation, and `conversationWithHistory` with the turn before it | the flow ends with `CancellationException` within 20 seconds, `sendMessage` throws `LiteRtLmJniException`, the flow of `sendMessageAsync` ends with `CancellationException` before any chunk, the new conversation answers, and the one from `conversationWithHistory` answers with the name from that turn |
+| `getTokenCount` before and after each of two messages | the count grows with each message |
+| a second `close` on a conversation and on an engine | `IllegalStateException`: `Conversation is closed already.` and `Engine is not initialized.` |
+| `initialize` on a missing file and on a file of zeros | `LiteRtLmJniException`, with `Model file not found: <path>` for the missing file |
+| `initialize` on a MediaPipe `.task` file (with `taskPath`), then `generateOnce` | the engine loads the file and answers; without `taskPath` the test is skipped |
+
 ## Tested on
 
 - Galaxy S26 (Android 16): `litert` 2.2.0, and 2.3.0 with `litert-gpu` 2.3.0, on the CPU and the GPU; `litertlm-android` 0.18.0 and 0.17.1 on the CPU and the GPU with `Qwen3-0.6B.litertlm`, and 0.18.0 with `gemma-4-E2B-it.litertlm`.
 - Pixel 8a and Galaxy S26 (Android 16): `MemoryOptionsTest` and `MigrationCodeTest`, with `litert` 2.3.0 and `litert-gpu` 2.3.0.
+- Pixel 11 Pro (Android 17) on the CPU and Galaxy S26 (Android 16) on the GPU, 2026-11-10: `ChatViewModelTest` and the `litert-lm` `MigrationCodeTest`, with `litertlm-android` 0.18.0 and `Qwen3-0.6B.litertlm`, and `taskPath` set to `Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.task`.
 - Android emulator (API 36, arm64): the `litert-runtime` tests, 17 of 20. The GPU accelerator loads there through OpenGL; the first GPU test runs, and the other three are skipped because their GPU load does not compile.
