@@ -34,6 +34,23 @@ val extractSkillCode =
         outputDir.set(layout.buildDirectory.dir("generated/skill"))
     }
 
+// The Kotlin of the skill's references/migration.md, built into the test APK for MigrationCodeTest
+// (src/migrationTest), only from a copy of the skill that has the reference.
+val migrationReference =
+    rootProject.layout.projectDirectory.dir(skillsDir).map {
+        it.file("litert-lm/references/migration.md")
+    }
+val migrationTests = migrationReference.get().asFile.isFile
+val extractMigrationCode =
+    tasks.register<ExtractSkillCode>("extractMigrationCode") {
+        enabled = migrationTests
+        sources.from(migrationReference)
+        header.set(layout.projectDirectory.file("skill-header.txt"))
+        // Not SkillCode.kt: the test APK's SkillCodeKt would shadow the app's.
+        fileName.set("MigrationCode.kt")
+        outputDir.set(layout.buildDirectory.dir("generated/migration"))
+    }
+
 android {
     namespace = "com.google.ai.edge.examples.litertlm"
     compileSdk = 36
@@ -54,10 +71,14 @@ android {
         compose = true
     }
     sourceSets.getByName("main").kotlin.directories += "build/generated/skill"
+    if (migrationTests) {
+        sourceSets.getByName("androidTest").kotlin.directories +=
+            listOf("build/generated/migration", "src/migrationTest/java")
+    }
 }
 
 tasks.named("preBuild") {
-    dependsOn(extractSkillCode)
+    dependsOn(extractSkillCode, extractMigrationCode)
 }
 
 dependencies {
